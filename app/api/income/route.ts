@@ -42,3 +42,14 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ income: row })
 }
+
+export async function DELETE(req: NextRequest) {
+  const userId = await requireUserId()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const id = req.nextUrl.searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+  await db.delete(income).where(and(eq(income.id, Number(id)), eq(income.userId, userId)))
+  return NextResponse.json({ ok: true })
+}

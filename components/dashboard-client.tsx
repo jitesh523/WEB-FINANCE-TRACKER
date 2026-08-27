@@ -78,6 +78,7 @@ export function DashboardClient({
   const [showTransfer, setShowTransfer] = useState(false)
   const [showResetDay, setShowResetDay] = useState(false)
   const [resetDayDate, setResetDayDate] = useState(todayISO())
+  const [checkedResetKeys, setCheckedResetKeys] = useState<Set<string>>(new Set())
 
   const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
   const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
@@ -166,9 +167,47 @@ export function DashboardClient({
     return expenses.filter((e) => Number(e.date.slice(8, 10)) === selectedDay)
   }, [selectedDay, expenses])
 
-  const resetDayExpenses = useMemo(
-    () => expenses.filter((e) => e.date === resetDayDate),
-    [expenses, resetDayDate],
+  type ResetEntry = { key: string; icon: string; label: string; sublabel: string; amount: number }
+
+  const resetDayEntries = useMemo<ResetEntry[]>(() => {
+    const items: ResetEntry[] = []
+    for (const e of expenses) {
+      if (e.date !== resetDayDate) continue
+      items.push({
+        key: `expense:${e.id}`,
+        icon: (CATEGORY_META[e.category] || DEFAULT_META).icon,
+        label: e.title,
+        sublabel: `Expense · ${e.category}`,
+        amount: -e.amount,
+      })
+    }
+    for (const i of incomeEntries) {
+      if (i.date !== resetDayDate) continue
+      items.push({
+        key: `income:${i.id}`,
+        icon: '↓',
+        label: i.source || 'Income',
+        sublabel: `Income → ${i.destination === 'savings' ? 'Savings account' : 'Salary account'}`,
+        amount: i.amount,
+      })
+    }
+    for (const s of savingsEntries) {
+      if (s.date !== resetDayDate) continue
+      const isTransfer = s.fundSource === 'salary'
+      items.push({
+        key: `saving:${s.id}`,
+        icon: isTransfer ? '⇄' : '↑',
+        label: isTransfer ? (s.amount >= 0 ? 'Transfer: Salary → Savings' : 'Transfer: Savings → Salary') : s.note || 'Savings deposit',
+        sublabel: isTransfer ? 'Account transfer' : 'Savings · from outside',
+        amount: s.amount,
+      })
+    }
+    return items
+  }, [expenses, incomeEntries, savingsEntries, resetDayDate])
+
+  const resetDayLabel = useMemo(
+    () => new Date(resetDayDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' }),
+    [resetDayDate],
   )
 
   const loadMonth = async (m: string) => {
@@ -229,20 +268,56 @@ export function DashboardClient({
     }
   }
 
-  const resetExpensesForDate = async (dateISO: string, dayExpenses: Expense[]) => {
-    if (dayExpenses.length === 0) return
-    const label = new Date(dateISO + 'T00:00:00').toLocaleDateString('en-IN', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
+  const toggleResetKey = (key: string) => {
+    setCheckedResetKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
     })
+  }
+
+  const allResetKeysChecked = resetDayEntries.length > 0 && resetDayEntries.every((e) => checkedResetKeys.has(e.key))
+
+  const toggleAllResetKeys = () => {
+    setCheckedResetKeys(allResetKeysChecked ? new Set() : new Set(resetDayEntries.map((e) => e.key)))
+  }
+
+  const openResetDay = (dateISO: string) => {
+    setResetDayDate(dateISO)
+    setCheckedResetKeys(new Set())
+    setShowResetDay(true)
+  }
+
+  const deleteSelectedResetEntries = async () => {
+    const selected = resetDayEntries.filter((e) => checkedResetKeys.has(e.key))
+    if (selected.length === 0) return
     const ok = window.confirm(
-      `Delete all ${dayExpenses.length} expense${dayExpenses.length === 1 ? '' : 's'} logged on ${label}? This can't be undone.`,
+      `Delete ${selected.length} selected item${selected.length === 1 ? '' : 's'} from ${resetDayLabel}? This can't be undone.`,
     )
     if (!ok) return
-    await Promise.all(dayExpenses.map((e) => fetch(`/api/expenses?id=${e.id}`, { method: 'DELETE' })))
-    const deletedIds = new Set(dayExpenses.map((e) => e.id))
-    setExpenses(expenses.filter((e) => !deletedIds.has(e.id)))
+
+    const expenseIds: number[] = []
+    const incomeIds: number[] = []
+    const savingIds: number[] = []
+    for (const item of selected) {
+      const [type, idStr] = item.key.split(':')
+      const id = Number(idStr)
+      if (type === 'expense') expenseIds.push(id)
+      else if (type === 'income') incomeIds.push(id)
+      else savingIds.push(id)
+    }
+
+    await Promise.all([
+      ...expenseIds.map((id) => fetch(`/api/expenses?id=${id}`, { method: 'DELETE' })),
+      ...incomeIds.map((id) => fetch(`/api/income?id=${id}`, { method: 'DELETE' })),
+      ...savingIds.map((id) => fetch(`/api/savings?id=${id}`, { method: 'DELETE' })),
+    ])
+
+    setExpenses(expenses.filter((e) => !expenseIds.includes(e.id)))
+    setIncomeEntries(incomeEntries.filter((i) => !incomeIds.includes(i.id)))
+    setSavingsEntries(savingsEntries.filter((s) => !savingIds.includes(s.id)))
+    setCheckedResetKeys(new Set())
     setShowResetDay(false)
     setSelectedDay(null)
   }
@@ -478,10 +553,7 @@ export function DashboardClient({
                   Transfer
                 </button>
                 <button
-                  onClick={() => {
-                    setResetDayDate(todayISO())
-                    setShowResetDay(true)
-                  }}
+                  onClick={() => openResetDay(todayISO())}
                   className="hidden items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 lg:flex"
                 >
                   Reset a day
@@ -535,8 +607,7 @@ export function DashboardClient({
                       </button>
                       <button
                         onClick={() => {
-                          setResetDayDate(todayISO())
-                          setShowResetDay(true)
+                          openResetDay(todayISO())
                           setMoreMenuOpen(false)
                         }}
                         className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-muted dark:text-red-400"
@@ -683,12 +754,15 @@ export function DashboardClient({
                       ))
                     )}
                   </div>
-                  {selectedDayExpenses.length > 0 && selectedDayISO && (
+                  {selectedDayISO && (
                     <button
-                      onClick={() => resetExpensesForDate(selectedDayISO, selectedDayExpenses)}
+                      onClick={() => {
+                        openResetDay(selectedDayISO)
+                        setSelectedDay(null)
+                      }}
                       className="mt-3 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
                     >
-                      Reset this day
+                      Manage this day&apos;s transactions
                     </button>
                   )}
                 </div>
@@ -1070,7 +1144,7 @@ export function DashboardClient({
       {showResetDay && (
         <Modal
           title="Reset a day"
-          subtitle="Pick any day this month and delete every expense logged on it."
+          subtitle="Pick a day, then check exactly which transactions to delete."
           onClose={() => setShowResetDay(false)}
         >
           <label className="text-sm font-medium">
@@ -1080,35 +1154,55 @@ export function DashboardClient({
               value={resetDayDate}
               min={entryDateMin}
               max={entryDateMax}
-              onChange={(e) => setResetDayDate(e.target.value)}
+              onChange={(e) => {
+                setResetDayDate(e.target.value)
+                setCheckedResetKeys(new Set())
+              }}
               className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
 
-          <div className="rounded-lg border bg-muted/40 p-3">
-            {resetDayExpenses.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No expenses logged on this day.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {resetDayExpenses.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between text-sm">
-                    <span>
-                      {(CATEGORY_META[e.category] || DEFAULT_META).icon} {e.title}{' '}
-                      <span className="text-muted-foreground">· {e.category}</span>
+          {resetDayEntries.length === 0 ? (
+            <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+              No transactions logged on {resetDayLabel}.
+            </p>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={allResetKeysChecked} onChange={toggleAllResetKeys} className="size-4" />
+                Select all ({resetDayEntries.length})
+              </label>
+              <div className="flex max-h-60 flex-col gap-1 overflow-y-auto rounded-lg border bg-muted/40 p-2">
+                {resetDayEntries.map((entry) => (
+                  <label
+                    key={entry.key}
+                    className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checkedResetKeys.has(entry.key)}
+                      onChange={() => toggleResetKey(entry.key)}
+                      className="size-4 shrink-0"
+                    />
+                    <span className="flex-1">
+                      {entry.icon} {entry.label} <span className="text-muted-foreground">· {entry.sublabel}</span>
                     </span>
-                    <span className="font-medium">{money(e.amount)}</span>
-                  </div>
+                    <span className="shrink-0 font-medium">
+                      {entry.amount >= 0 ? '+' : '−'}
+                      {money(Math.abs(entry.amount))}
+                    </span>
+                  </label>
                 ))}
               </div>
-            )}
-          </div>
+            </>
+          )}
 
           <button
-            onClick={() => resetExpensesForDate(resetDayDate, resetDayExpenses)}
-            disabled={resetDayExpenses.length === 0}
+            onClick={deleteSelectedResetEntries}
+            disabled={checkedResetKeys.size === 0}
             className="mt-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50 dark:bg-red-500"
           >
-            Reset this day ({resetDayExpenses.length})
+            Delete selected ({checkedResetKeys.size})
           </button>
         </Modal>
       )}

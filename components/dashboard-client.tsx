@@ -8,6 +8,7 @@ import {
   ChevronDown,
   LayoutDashboard,
   LogOut,
+  MoreHorizontal,
   Plus,
   Settings2,
   Sparkles,
@@ -68,6 +69,7 @@ export function DashboardClient({
 
   const [viewMonth, setViewMonth] = useState(month)
   const [monthMenuOpen, setMonthMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [monthLoading, setMonthLoading] = useState(false)
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
   const isCurrentMonth = viewMonth === month
@@ -386,6 +388,48 @@ export function DashboardClient({
                 >
                   Add savings
                 </button>
+
+                <div className="relative lg:hidden">
+                  <button
+                    onClick={() => setMoreMenuOpen((v) => !v)}
+                    aria-label="More actions"
+                    className="rounded-lg border p-2.5 text-muted-foreground"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                  {moreMenuOpen && (
+                    <div className="absolute right-0 z-10 mt-1 w-40 rounded-lg border bg-card py-1 shadow-lg">
+                      <button
+                        onClick={() => {
+                          setShowAddSalary(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        Set salary
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddIncome(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        Add income
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddSavings(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        Add savings
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={() => setShowAddExpense(true)}
                   className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"

@@ -1,0 +1,88 @@
+import { pgTable, text, timestamp, boolean, numeric, serial, date } from 'drizzle-orm/pg-core'
+
+// --- better-auth's own tables (standard shape it expects from the Drizzle adapter) ---
+
+export const user = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: text('image'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const session = pgTable('session', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const account = pgTable('account', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  issuer: text('issuer'),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at'),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const verification = pgTable('verification', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+})
+
+// --- app data, owned by this project ---
+
+export const salary = pgTable('salary', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount').notNull(),
+  effectiveMonth: text('effective_month').notNull(), // 'YYYY-MM'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const expenses = pgTable('expenses', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  category: text('category').notNull(),
+  amount: numeric('amount').notNull(),
+  date: date('date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const savings = pgTable('savings', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount').notNull(),
+  note: text('note'),
+  date: date('date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const income = pgTable('income', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount').notNull(),
+  source: text('source'),
+  date: date('date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})

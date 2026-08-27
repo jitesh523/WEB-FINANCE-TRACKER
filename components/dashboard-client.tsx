@@ -76,6 +76,8 @@ export function DashboardClient({
   const [showAddSavings, setShowAddSavings] = useState(false)
   const [showAddIncome, setShowAddIncome] = useState(false)
   const [showTransfer, setShowTransfer] = useState(false)
+  const [showResetDay, setShowResetDay] = useState(false)
+  const [resetDayDate, setResetDayDate] = useState(todayISO())
 
   const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
   const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
@@ -157,10 +159,17 @@ export function DashboardClient({
     return d.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })
   }, [selectedDay, viewMonth])
 
+  const selectedDayISO = selectedDay == null ? null : `${viewMonth}-${String(selectedDay).padStart(2, '0')}`
+
   const selectedDayExpenses = useMemo(() => {
     if (selectedDay == null) return []
     return expenses.filter((e) => Number(e.date.slice(8, 10)) === selectedDay)
   }, [selectedDay, expenses])
+
+  const resetDayExpenses = useMemo(
+    () => expenses.filter((e) => e.date === resetDayDate),
+    [expenses, resetDayDate],
+  )
 
   const loadMonth = async (m: string) => {
     setMonthLoading(true)
@@ -218,6 +227,24 @@ export function DashboardClient({
       setExpenseForm({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
       setShowAddExpense(false)
     }
+  }
+
+  const resetExpensesForDate = async (dateISO: string, dayExpenses: Expense[]) => {
+    if (dayExpenses.length === 0) return
+    const label = new Date(dateISO + 'T00:00:00').toLocaleDateString('en-IN', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    })
+    const ok = window.confirm(
+      `Delete all ${dayExpenses.length} expense${dayExpenses.length === 1 ? '' : 's'} logged on ${label}? This can't be undone.`,
+    )
+    if (!ok) return
+    await Promise.all(dayExpenses.map((e) => fetch(`/api/expenses?id=${e.id}`, { method: 'DELETE' })))
+    const deletedIds = new Set(dayExpenses.map((e) => e.id))
+    setExpenses(expenses.filter((e) => !deletedIds.has(e.id)))
+    setShowResetDay(false)
+    setSelectedDay(null)
   }
 
   const updateSalary = async () => {
@@ -450,6 +477,15 @@ export function DashboardClient({
                 >
                   Transfer
                 </button>
+                <button
+                  onClick={() => {
+                    setResetDayDate(todayISO())
+                    setShowResetDay(true)
+                  }}
+                  className="hidden items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 lg:flex"
+                >
+                  Reset a day
+                </button>
 
                 <div className="relative lg:hidden">
                   <button
@@ -496,6 +532,16 @@ export function DashboardClient({
                         className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
                       >
                         Transfer
+                      </button>
+                      <button
+                        onClick={() => {
+                          setResetDayDate(todayISO())
+                          setShowResetDay(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-muted dark:text-red-400"
+                      >
+                        Reset a day
                       </button>
                     </div>
                   )}
@@ -637,6 +683,14 @@ export function DashboardClient({
                       ))
                     )}
                   </div>
+                  {selectedDayExpenses.length > 0 && selectedDayISO && (
+                    <button
+                      onClick={() => resetExpensesForDate(selectedDayISO, selectedDayExpenses)}
+                      className="mt-3 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                    >
+                      Reset this day
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1009,6 +1063,52 @@ export function DashboardClient({
           </label>
           <button onClick={addTransfer} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Transfer
+          </button>
+        </Modal>
+      )}
+
+      {showResetDay && (
+        <Modal
+          title="Reset a day"
+          subtitle="Pick any day this month and delete every expense logged on it."
+          onClose={() => setShowResetDay(false)}
+        >
+          <label className="text-sm font-medium">
+            Date
+            <input
+              type="date"
+              value={resetDayDate}
+              min={entryDateMin}
+              max={entryDateMax}
+              onChange={(e) => setResetDayDate(e.target.value)}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+
+          <div className="rounded-lg border bg-muted/40 p-3">
+            {resetDayExpenses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No expenses logged on this day.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {resetDayExpenses.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between text-sm">
+                    <span>
+                      {(CATEGORY_META[e.category] || DEFAULT_META).icon} {e.title}{' '}
+                      <span className="text-muted-foreground">· {e.category}</span>
+                    </span>
+                    <span className="font-medium">{money(e.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => resetExpensesForDate(resetDayDate, resetDayExpenses)}
+            disabled={resetDayExpenses.length === 0}
+            className="mt-2 rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50 dark:bg-red-500"
+          >
+            Reset this day ({resetDayExpenses.length})
           </button>
         </Modal>
       )}

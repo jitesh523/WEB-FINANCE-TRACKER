@@ -180,13 +180,14 @@ export function DashboardClient({
   }
 
   const addExpense = async () => {
-    if (!expenseForm.title || !expenseForm.amount) return
+    const category = expenseForm.category.trim()
+    if (!expenseForm.title || !expenseForm.amount || !category) return
     const res = await fetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title: expenseForm.title,
-        category: expenseForm.category,
+        category,
         amount: Number(expenseForm.amount),
         date: todayISO(),
       }),
@@ -723,15 +724,18 @@ export function DashboardClient({
           </label>
           <label className="text-sm font-medium">
             Category
-            <select
+            <input
               value={expenseForm.category}
               onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal"
-            >
+              list="expense-categories"
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. Food & Dining, Gym, Pet Care"
+            />
+            <datalist id="expense-categories">
               {Object.keys(CATEGORY_META).map((c) => (
-                <option key={c}>{c}</option>
+                <option key={c} value={c} />
               ))}
-            </select>
+            </datalist>
           </label>
           <button onClick={addExpense} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Save expense

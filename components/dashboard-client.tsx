@@ -300,15 +300,24 @@ export function DashboardClient({
         </div>
         <div className="mt-12 flex flex-col gap-2">
           <p className="px-3 text-xs font-medium uppercase tracking-widest text-muted-foreground">Workspace</p>
-          <a className="mt-2 flex items-center gap-3 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground">
+          <a
+            href="#top"
+            className="mt-2 flex items-center gap-3 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground"
+          >
             <LayoutDashboard data-icon="inline-start" />
             Overview
           </a>
-          <a className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+          <a
+            href="#expenses"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted"
+          >
             <WalletCards data-icon="inline-start" />
             Expenses
           </a>
-          <a className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted">
+          <a
+            href="#insights"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted"
+          >
             <Sparkles data-icon="inline-start" />
             Insights
           </a>
@@ -337,7 +346,7 @@ export function DashboardClient({
         </div>
       </aside>
 
-      <section className="lg:pl-64">
+      <section id="top" className="lg:pl-64">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5 md:px-10">
           <div>
             <p className="text-sm text-muted-foreground">{todayLabel}</p>
@@ -515,7 +524,7 @@ export function DashboardClient({
               )}
             </div>
 
-            <div className="flex flex-col rounded-xl border bg-primary p-6 text-primary-foreground">
+            <div id="insights" className="flex scroll-mt-6 flex-col rounded-xl border bg-primary p-6 text-primary-foreground">
               <div className="flex items-center justify-between">
                 <div className="flex size-9 items-center justify-center rounded-lg bg-primary-foreground/15">
                   <Sparkles />
@@ -575,7 +584,7 @@ export function DashboardClient({
             </div>
           </div>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.4fr]">
+          <div id="expenses" className="mt-6 grid scroll-mt-6 gap-6 xl:grid-cols-[1fr_1.4fr]">
             <div className="rounded-xl border bg-card p-6">
               <h2 className="font-semibold">Where your money goes</h2>
               <p className="mt-1 text-sm text-muted-foreground">{money(totalSpent)} spent in {monthLabel}</p>

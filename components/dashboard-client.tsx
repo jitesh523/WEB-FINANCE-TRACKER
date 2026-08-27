@@ -17,10 +17,11 @@ import {
 } from 'lucide-react'
 import { signOut } from '@/lib/auth-client'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { todayISO, toLocalISODate } from '@/lib/date-utils'
 
 type Expense = { id: number; title: string; category: string; amount: number; date: string }
-type Saving = { id: number; amount: number; note: string | null; date: string }
-type IncomeEntry = { id: number; amount: number; source: string | null; date: string }
+type Saving = { id: number; amount: number; note: string | null; fundSource: string; date: string }
+type IncomeEntry = { id: number; amount: number; source: string | null; destination: string; date: string }
 
 const CATEGORY_META: Record<string, { color: string; icon: string }> = {
   'Food & Dining': { color: 'bg-chart-1', icon: '🍜' },
@@ -33,14 +34,10 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 
 const money = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 function formatDate(iso: string) {
   const d = new Date(iso + 'T00:00:00')
   const today = todayISO()
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const yesterday = toLocalISODate(new Date(Date.now() - 86400000))
   if (iso === today) return 'Today'
   if (iso === yesterday) return 'Yesterday'
   return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
@@ -78,11 +75,17 @@ export function DashboardClient({
   const [showAddSalary, setShowAddSalary] = useState(false)
   const [showAddSavings, setShowAddSavings] = useState(false)
   const [showAddIncome, setShowAddIncome] = useState(false)
+  const [showTransfer, setShowTransfer] = useState(false)
 
-  const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining' })
+  const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
   const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
-  const [savingsForm, setSavingsForm] = useState({ amount: '', note: '' })
-  const [incomeForm, setIncomeForm] = useState({ amount: '', source: '' })
+  const [savingsForm, setSavingsForm] = useState({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
+  const [incomeForm, setIncomeForm] = useState({ amount: '', source: '', destination: 'salary', date: todayISO() })
+  const [transferForm, setTransferForm] = useState<{
+    amount: string
+    direction: 'salary_to_savings' | 'savings_to_salary'
+    date: string
+  }>({ amount: '', direction: 'salary_to_savings', date: todayISO() })
 
   type ChatMessage = { role: 'user' | 'assistant'; content: string }
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -92,10 +95,27 @@ export function DashboardClient({
 
   const totalSpent = useMemo(() => expenses.reduce((s, e) => s + e.amount, 0), [expenses])
   const totalSaved = useMemo(() => savingsEntries.reduce((s, x) => s + x.amount, 0), [savingsEntries])
-  const totalIncome = useMemo(() => incomeEntries.reduce((s, i) => s + i.amount, 0), [incomeEntries])
+  const incomeToSalary = useMemo(
+    () => incomeEntries.filter((i) => i.destination !== 'savings').reduce((s, i) => s + i.amount, 0),
+    [incomeEntries],
+  )
+  const incomeToSavings = useMemo(
+    () => incomeEntries.filter((i) => i.destination === 'savings').reduce((s, i) => s + i.amount, 0),
+    [incomeEntries],
+  )
+  const savingsFromSalary = useMemo(
+    () => savingsEntries.filter((x) => x.fundSource === 'salary').reduce((s, x) => s + x.amount, 0),
+    [savingsEntries],
+  )
+  const totalIncome = incomeToSalary + incomeToSavings
   const totalAvailableIncome = salaryAmount + totalIncome
-  const remaining = totalAvailableIncome - totalSpent
-  const savingsRate = totalAvailableIncome > 0 ? (totalSaved / totalAvailableIncome) * 100 : 0
+
+  // Two real account balances: money moved from Salary into Savings leaves the
+  // salary balance and lands in the savings balance; money added "from outside"
+  // only ever touches the savings balance.
+  const salaryAccountBalance = salaryAmount + incomeToSalary - totalSpent - savingsFromSalary
+  const savingsAccountBalance = totalSaved + incomeToSavings
+  const savingsRate = totalAvailableIncome > 0 ? (savingsAccountBalance / totalAvailableIncome) * 100 : 0
 
   const byCategory = useMemo(() => {
     const map: Record<string, number> = {}
@@ -189,13 +209,13 @@ export function DashboardClient({
         title: expenseForm.title,
         category,
         amount: Number(expenseForm.amount),
-        date: todayISO(),
+        date: expenseForm.date || todayISO(),
       }),
     })
     if (res.ok) {
       const { expense } = await res.json()
       setExpenses([{ ...expense, amount: Number(expense.amount) }, ...expenses])
-      setExpenseForm({ title: '', amount: '', category: 'Food & Dining' })
+      setExpenseForm({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
       setShowAddExpense(false)
     }
   }
@@ -220,12 +240,17 @@ export function DashboardClient({
     const res = await fetch('/api/savings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, note: savingsForm.note, date: todayISO() }),
+      body: JSON.stringify({
+        amount,
+        note: savingsForm.note,
+        fundSource: savingsForm.fundSource,
+        date: savingsForm.date || todayISO(),
+      }),
     })
     if (res.ok) {
       const { saving } = await res.json()
       setSavingsEntries([{ ...saving, amount: Number(saving.amount) }, ...savingsEntries])
-      setSavingsForm({ amount: '', note: '' })
+      setSavingsForm({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
       setShowAddSavings(false)
     }
   }
@@ -236,13 +261,41 @@ export function DashboardClient({
     const res = await fetch('/api/income', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, source: incomeForm.source, date: todayISO() }),
+      body: JSON.stringify({
+        amount,
+        source: incomeForm.source,
+        destination: incomeForm.destination,
+        date: incomeForm.date || todayISO(),
+      }),
     })
     if (res.ok) {
       const { income: row } = await res.json()
       setIncomeEntries([{ ...row, amount: Number(row.amount) }, ...incomeEntries])
-      setIncomeForm({ amount: '', source: '' })
+      setIncomeForm({ amount: '', source: '', destination: 'salary', date: todayISO() })
       setShowAddIncome(false)
+    }
+  }
+
+  // A transfer is stored as a savings entry: salary→savings is a normal
+  // positive deposit with fundSource 'salary'; savings→salary is the same
+  // but negative, which correctly subtracts from the savings total while
+  // also reducing `savingsFromSalary` (and thus adding back to the salary
+  // balance) in the calculations above.
+  const addTransfer = async () => {
+    const rawAmount = Number(transferForm.amount)
+    if (!rawAmount || rawAmount <= 0) return
+    const signedAmount = transferForm.direction === 'salary_to_savings' ? rawAmount : -rawAmount
+    const note = transferForm.direction === 'salary_to_savings' ? 'Transfer from salary account' : 'Transfer to salary account'
+    const res = await fetch('/api/savings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: signedAmount, note, fundSource: 'salary', date: transferForm.date || todayISO() }),
+    })
+    if (res.ok) {
+      const { saving } = await res.json()
+      setSavingsEntries([{ ...saving, amount: Number(saving.amount) }, ...savingsEntries])
+      setTransferForm({ amount: '', direction: 'salary_to_savings', date: todayISO() })
+      setShowTransfer(false)
     }
   }
 
@@ -285,6 +338,8 @@ export function DashboardClient({
     year: 'numeric',
   })
   const monthLabel = new Date(viewMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+  const entryDateMin = `${month}-01`
+  const entryDateMax = todayISO()
   const initials = userName
     .split(' ')
     .map((p) => p[0])
@@ -389,6 +444,12 @@ export function DashboardClient({
                 >
                   Add savings
                 </button>
+                <button
+                  onClick={() => setShowTransfer(true)}
+                  className="hidden items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium lg:flex"
+                >
+                  Transfer
+                </button>
 
                 <div className="relative lg:hidden">
                   <button
@@ -427,6 +488,15 @@ export function DashboardClient({
                       >
                         Add savings
                       </button>
+                      <button
+                        onClick={() => {
+                          setShowTransfer(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        Transfer
+                      </button>
                     </div>
                   )}
                 </div>
@@ -463,9 +533,9 @@ export function DashboardClient({
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Metric
-              label="Available to spend"
-              value={money(remaining)}
-              detail={`of ${money(totalAvailableIncome)} income`}
+              label="Salary account"
+              value={money(salaryAccountBalance)}
+              detail={`of ${money(salaryAmount + incomeToSalary)} credited`}
               tone="positive"
             />
             <Metric
@@ -475,15 +545,17 @@ export function DashboardClient({
               tone="neutral"
             />
             <Metric
-              label="Extra income"
-              value={money(totalIncome)}
-              detail={`${incomeEntries.length} payment${incomeEntries.length === 1 ? '' : 's'}`}
+              label="Savings account"
+              value={money(savingsAccountBalance)}
+              detail={`${savingsEntries.length + incomeEntries.filter((i) => i.destination === 'savings').length} deposit${
+                savingsEntries.length + incomeEntries.filter((i) => i.destination === 'savings').length === 1 ? '' : 's'
+              }`}
               tone="neutral"
             />
             <Metric
               label="Savings rate"
               value={totalAvailableIncome > 0 ? `${savingsRate.toFixed(1)}%` : '—'}
-              detail={`${money(totalSaved)} saved`}
+              detail={`of ${money(totalAvailableIncome)} total income`}
               tone="accent"
             />
           </div>
@@ -737,6 +809,17 @@ export function DashboardClient({
               ))}
             </datalist>
           </label>
+          <label className="text-sm font-medium">
+            Date
+            <input
+              type="date"
+              value={expenseForm.date}
+              min={entryDateMin}
+              max={entryDateMax}
+              onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
           <button onClick={addExpense} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Save expense
           </button>
@@ -782,6 +865,39 @@ export function DashboardClient({
               placeholder="e.g. moved to savings account"
             />
           </label>
+          <label className="text-sm font-medium">
+            Where&apos;s this coming from?
+            <div className="mt-2 flex rounded-lg border p-1">
+              <button
+                type="button"
+                onClick={() => setSavingsForm({ ...savingsForm, fundSource: 'outside' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${savingsForm.fundSource === 'outside' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                From outside
+              </button>
+              <button
+                type="button"
+                onClick={() => setSavingsForm({ ...savingsForm, fundSource: 'salary' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${savingsForm.fundSource === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                From salary account
+              </button>
+            </div>
+            {savingsForm.fundSource === 'salary' && (
+              <p className="mt-2 text-xs text-muted-foreground">This amount will be deducted from your salary account.</p>
+            )}
+          </label>
+          <label className="text-sm font-medium">
+            Date
+            <input
+              type="date"
+              value={savingsForm.date}
+              min={entryDateMin}
+              max={entryDateMax}
+              onChange={(e) => setSavingsForm({ ...savingsForm, date: e.target.value })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
           <button onClick={addSavings} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Save
           </button>
@@ -809,8 +925,90 @@ export function DashboardClient({
               placeholder="e.g. Dad, freelance project"
             />
           </label>
+          <label className="text-sm font-medium">
+            Add this to
+            <div className="mt-2 flex rounded-lg border p-1">
+              <button
+                type="button"
+                onClick={() => setIncomeForm({ ...incomeForm, destination: 'salary' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${incomeForm.destination === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Salary account
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncomeForm({ ...incomeForm, destination: 'savings' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${incomeForm.destination === 'savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Savings account
+              </button>
+            </div>
+          </label>
+          <label className="text-sm font-medium">
+            Date
+            <input
+              type="date"
+              value={incomeForm.date}
+              min={entryDateMin}
+              max={entryDateMax}
+              onChange={(e) => setIncomeForm({ ...incomeForm, date: e.target.value })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
           <button onClick={addIncome} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Save
+          </button>
+        </Modal>
+      )}
+
+      {showTransfer && (
+        <Modal
+          title="Transfer between accounts"
+          subtitle="Move money between your salary and savings accounts."
+          onClose={() => setShowTransfer(false)}
+        >
+          <label className="text-sm font-medium">
+            Direction
+            <div className="mt-2 flex rounded-lg border p-1">
+              <button
+                type="button"
+                onClick={() => setTransferForm({ ...transferForm, direction: 'salary_to_savings' })}
+                className={`flex-1 rounded-md py-2 text-xs font-medium sm:text-sm ${transferForm.direction === 'salary_to_savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Salary → Savings
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransferForm({ ...transferForm, direction: 'savings_to_salary' })}
+                className={`flex-1 rounded-md py-2 text-xs font-medium sm:text-sm ${transferForm.direction === 'savings_to_salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Savings → Salary
+              </button>
+            </div>
+          </label>
+          <label className="text-sm font-medium">
+            Amount
+            <input
+              value={transferForm.amount}
+              onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="₹ 0"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Date
+            <input
+              type="date"
+              value={transferForm.date}
+              min={entryDateMin}
+              max={entryDateMax}
+              onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <button onClick={addTransfer} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+            Transfer
           </button>
         </Modal>
       )}

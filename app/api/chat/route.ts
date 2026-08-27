@@ -3,14 +3,8 @@ import Groq from 'groq-sdk'
 import { db } from '@/lib/db'
 import { expenses, savings, salary, income } from '@/lib/db/schema'
 import { requireUserId } from '@/lib/get-session'
+import { monthRange } from '@/lib/date-utils'
 import { and, eq, gte, lte, desc } from 'drizzle-orm'
-
-function monthRange(month: string) {
-  const [y, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const end = new Date(y, m, 0).toISOString().slice(0, 10)
-  return { start, end }
-}
 
 export async function POST(req: NextRequest) {
   const userId = await requireUserId()
@@ -54,7 +48,11 @@ export async function POST(req: NextRequest) {
   const salaryAmount = salaryRow?.amount ? Number(salaryRow.amount) : 0
   const totalSpent = expenseRows.reduce((sum, e) => sum + Number(e.amount), 0)
   const totalSaved = savingsRows.reduce((sum, s) => sum + Number(s.amount), 0)
-  const totalExtraIncome = incomeRows.reduce((sum, i) => sum + Number(i.amount), 0)
+  const incomeToSalary = incomeRows.filter((i) => i.destination !== 'savings').reduce((sum, i) => sum + Number(i.amount), 0)
+  const incomeToSavings = incomeRows.filter((i) => i.destination === 'savings').reduce((sum, i) => sum + Number(i.amount), 0)
+  const savingsFromSalary = savingsRows.filter((s) => s.fundSource === 'salary').reduce((sum, s) => sum + Number(s.amount), 0)
+  const salaryAccountBalance = salaryAmount + incomeToSalary - totalSpent - savingsFromSalary
+  const savingsAccountBalance = totalSaved + incomeToSavings
 
   const byCategory: Record<string, number> = {}
   for (const e of expenseRows) {
@@ -78,14 +76,16 @@ export async function POST(req: NextRequest) {
       .map((i) => `- ${i.date}: ${i.source || 'Extra income'} — ₹${Number(i.amount).toFixed(2)}`)
       .join('\n') || '- No extra income this month'
 
-  const systemPrompt = `You are the AI assistant embedded in DD Finance Calculator, a personal finance tracking app. Answer the user's questions about their own finances using ONLY the real data below (amounts in Indian Rupees, ₹). Be concise and practical — a few sentences unless asked for more detail. Respond in plain prose only — no markdown formatting (no asterisks, bullet points, headers, or bold text). Never give personalized investment advice (specific stocks, funds, or products) — keep any investment ideas general (e.g. emergency fund, recurring deposit, index funds). If asked something unrelated to their finances, politely redirect to finance topics.
+  const systemPrompt = `You are the AI assistant embedded in DD Finance Calculator, a personal finance tracking app. The user has two separate accounts: a Salary account (their spending money) and a Savings account. Money can be transferred between the two, and income can be routed into either one. Answer the user's questions about their own finances using ONLY the real data below (amounts in Indian Rupees, ₹). Be concise and practical — a few sentences unless asked for more detail. Respond in plain prose only — no markdown formatting (no asterisks, bullet points, headers, or bold text). Never give personalized investment advice (specific stocks, funds, or products) — keep any investment ideas general (e.g. emergency fund, recurring deposit, index funds). If asked something unrelated to their finances, politely redirect to finance topics.
 
 Financial data for ${month}:
-Monthly salary: ₹${salaryAmount.toFixed(2)}
-Extra income (gifts, etc.): ₹${totalExtraIncome.toFixed(2)}
+Monthly salary credited: ₹${salaryAmount.toFixed(2)}
+Income routed to salary account: ₹${incomeToSalary.toFixed(2)}
+Income routed to savings account: ₹${incomeToSavings.toFixed(2)}
 Total spent: ₹${totalSpent.toFixed(2)}
-Total saved: ₹${totalSaved.toFixed(2)}
-Remaining (salary + extra income - spent): ₹${(salaryAmount + totalExtraIncome - totalSpent).toFixed(2)}
+Net moved from salary into savings: ₹${savingsFromSalary.toFixed(2)}
+Salary account balance (available to spend): ₹${salaryAccountBalance.toFixed(2)}
+Savings account balance: ₹${savingsAccountBalance.toFixed(2)}
 
 Spending by category:
 ${categoryLines}

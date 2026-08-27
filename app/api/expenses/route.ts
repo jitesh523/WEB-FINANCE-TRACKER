@@ -2,14 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { expenses } from '@/lib/db/schema'
 import { requireUserId } from '@/lib/get-session'
+import { monthRange } from '@/lib/date-utils'
 import { and, eq, gte, lte, desc } from 'drizzle-orm'
-
-function monthRange(month: string) {
-  const [y, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const end = new Date(y, m, 0).toISOString().slice(0, 10)
-  return { start, end }
-}
 
 export async function GET(req: NextRequest) {
   const userId = await requireUserId()

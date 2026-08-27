@@ -2,14 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { income } from '@/lib/db/schema'
 import { requireUserId } from '@/lib/get-session'
+import { monthRange } from '@/lib/date-utils'
 import { and, eq, gte, lte, desc } from 'drizzle-orm'
-
-function monthRange(month: string) {
-  const [y, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const end = new Date(y, m, 0).toISOString().slice(0, 10)
-  return { start, end }
-}
 
 export async function GET(req: NextRequest) {
   const userId = await requireUserId()
@@ -33,14 +27,17 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { amount, source, date } = body
+  const { amount, source, date, destination } = body
   if (!amount || !date) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+  }
+  if (destination && destination !== 'salary' && destination !== 'savings') {
+    return NextResponse.json({ error: 'Invalid destination' }, { status: 400 })
   }
 
   const [row] = await db
     .insert(income)
-    .values({ userId, amount: String(amount), source: source || null, date })
+    .values({ userId, amount: String(amount), source: source || null, destination: destination || 'salary', date })
     .returning()
 
   return NextResponse.json({ income: row })

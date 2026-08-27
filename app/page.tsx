@@ -6,13 +6,7 @@ import { db } from '@/lib/db'
 import { expenses, savings, salary, income } from '@/lib/db/schema'
 import { and, eq, gte, lte, desc } from 'drizzle-orm'
 import { DashboardClient } from '@/components/dashboard-client'
-
-function monthRange(month: string) {
-  const [y, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const end = new Date(y, m, 0).toISOString().slice(0, 10)
-  return { start, end }
-}
+import { monthRange, currentMonthISO } from '@/lib/date-utils'
 
 export default async function Page() {
   const userId = await requireUserId()
@@ -21,7 +15,7 @@ export default async function Page() {
   const session = await auth.api.getSession({ headers: await headers() })
   const userName = session?.user?.name || session?.user?.email?.split('@')[0] || 'there'
 
-  const month = new Date().toISOString().slice(0, 7)
+  const month = currentMonthISO()
   const { start, end } = monthRange(month)
 
   const [salaryRow] = await db
@@ -65,12 +59,14 @@ export default async function Page() {
         id: s.id,
         amount: Number(s.amount),
         note: s.note,
+        fundSource: s.fundSource,
         date: s.date,
       }))}
       initialIncome={incomeRows.map((i) => ({
         id: i.id,
         amount: Number(i.amount),
         source: i.source,
+        destination: i.destination,
         date: i.date,
       }))}
     />

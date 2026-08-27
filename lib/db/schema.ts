@@ -69,20 +69,26 @@ export const expenses = pgTable('expenses', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// `fundSource`: 'salary' means this deposit was moved out of the salary
+// account (and should reduce its balance); 'outside' means it came from
+// somewhere else (a gift, cash, etc.) and leaves the salary account untouched.
 export const savings = pgTable('savings', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   amount: numeric('amount').notNull(),
   note: text('note'),
+  fundSource: text('fund_source').notNull().default('outside'),
   date: date('date').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// `destination`: which account this income should be credited to.
 export const income = pgTable('income', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   amount: numeric('amount').notNull(),
   source: text('source'),
+  destination: text('destination').notNull().default('salary'),
   date: date('date').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })

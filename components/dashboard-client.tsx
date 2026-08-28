@@ -654,10 +654,14 @@ export function DashboardClient({
       <section id="top" className="lg:pl-64">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5 md:px-10">
           <div>
-            <p className="text-sm text-muted-foreground">{todayLabel}</p>
+            <p className="text-sm text-muted-foreground" suppressHydrationWarning>
+              {todayLabel}
+            </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-              {greeting.jp}, {userName}
-              <span className="ml-2 text-base font-normal text-muted-foreground">({greeting.en})</span>
+              <span suppressHydrationWarning>{greeting.jp}</span>, {userName}
+              <span className="ml-2 text-base font-normal text-muted-foreground" suppressHydrationWarning>
+                ({greeting.en})
+              </span>
             </h1>
           </div>
           <div className="flex items-center gap-3">

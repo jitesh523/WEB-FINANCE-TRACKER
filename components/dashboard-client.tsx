@@ -1617,8 +1617,8 @@ function Modal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4">
-      <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-xl">
-        <div className="flex items-center justify-between">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-xl border bg-card shadow-xl">
+        <div className="flex shrink-0 items-center justify-between p-6 pb-4">
           <div>
             <h2 className="text-lg font-semibold">{title}</h2>
             <p className="text-sm text-muted-foreground">{subtitle}</p>
@@ -1627,7 +1627,7 @@ function Modal({
             <X />
           </button>
         </div>
-        <div className="mt-6 flex flex-col gap-4">{children}</div>
+        <div className="flex flex-col gap-4 overflow-y-auto px-6 pb-6">{children}</div>
       </div>
     </div>
   )

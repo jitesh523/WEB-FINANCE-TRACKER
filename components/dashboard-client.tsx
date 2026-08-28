@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowUpRight,
@@ -22,7 +22,8 @@ import { todayISO, toLocalISODate } from '@/lib/date-utils'
 type Expense = { id: number; title: string; category: string; amount: number; date: string }
 type Saving = { id: number; amount: number; note: string | null; fundSource: string; date: string }
 type IncomeEntry = { id: number; amount: number; source: string | null; destination: string; date: string }
-type SipPlan = { id: number; name: string; amount: number; dayOfMonth: number; fromAccount: string }
+type SipPlan = { id: number; name: string; amount: number; dayOfMonth: number; fromAccount: string; lastExecutedMonth?: string | null }
+type SipContribution = { id: number; name: string; amount: number; fromAccount: string; date: string }
 
 const CATEGORY_META: Record<string, { color: string; icon: string }> = {
   'Food & Dining': { color: 'bg-chart-1', icon: '🍜' },
@@ -52,6 +53,8 @@ export function DashboardClient({
   initialSavings,
   initialIncome,
   initialSips,
+  initialSipContributions,
+  initialSipTotalContributed,
 }: {
   userName: string
   month: string
@@ -60,13 +63,17 @@ export function DashboardClient({
   initialSavings: Saving[]
   initialIncome: IncomeEntry[]
   initialSips: SipPlan[]
+  initialSipContributions: SipContribution[]
+  initialSipTotalContributed: number
 }) {
   const router = useRouter()
   const [expenses, setExpenses] = useState(initialExpenses)
   const [savingsEntries, setSavingsEntries] = useState(initialSavings)
   const [incomeEntries, setIncomeEntries] = useState(initialIncome)
   const [salaryAmount, setSalaryAmount] = useState(initialSalary)
+  const [sipTotalContributed, setSipTotalContributed] = useState(initialSipTotalContributed)
   const [sips, setSips] = useState(initialSips)
+  const [sipContributions, setSipContributions] = useState(initialSipContributions)
 
   const [viewMonth, setViewMonth] = useState(month)
   const [monthMenuOpen, setMonthMenuOpen] = useState(false)
@@ -264,22 +271,25 @@ export function DashboardClient({
     setSelectedDay(null)
     setChatMessages([])
     try {
-      const [expRes, savRes, salRes, incRes] = await Promise.all([
+      const [expRes, savRes, salRes, incRes, sipContribRes] = await Promise.all([
         fetch(`/api/expenses?month=${m}`),
         fetch(`/api/savings?month=${m}`),
         fetch(`/api/salary?month=${m}`),
         fetch(`/api/income?month=${m}`),
+        fetch(`/api/sip-contributions?month=${m}`),
       ])
-      const [expData, savData, salData, incData] = await Promise.all([
+      const [expData, savData, salData, incData, sipContribData] = await Promise.all([
         expRes.json(),
         savRes.json(),
         salRes.json(),
         incRes.json(),
+        sipContribRes.json(),
       ])
       setExpenses((expData.expenses || []).map((e: Expense) => ({ ...e, amount: Number(e.amount) })))
       setSavingsEntries((savData.savings || []).map((s: Saving) => ({ ...s, amount: Number(s.amount) })))
       setIncomeEntries((incData.income || []).map((i: IncomeEntry) => ({ ...i, amount: Number(i.amount) })))
       setSalaryAmount(Number(salData.salary || 0))
+      setSipContributions((sipContribData.contributions || []).map((c: SipContribution) => ({ ...c, amount: Number(c.amount) })))
     } finally {
       setMonthLoading(false)
     }
@@ -295,6 +305,32 @@ export function DashboardClient({
     setViewMonth(month)
     loadMonth(month)
   }
+
+  // On mount, check whether any SIP is due today and execute it server-side
+  // (deduct from its account, credit the SIP account). Always refresh the
+  // current month's data afterward — not just when this particular call
+  // reports something executed — since dev-mode double-mounting can execute
+  // a SIP on a call whose result we then discard, leaving nothing to react to.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/sip')
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled) return
+        setSips((data.sips || []).map((s: SipPlan) => ({ ...s, amount: Number(s.amount) })))
+        setSipTotalContributed(Number(data.totalContributed || 0))
+        await loadMonth(month)
+      } catch {
+        // best-effort — a failed check just means we try again next load
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const addExpense = async () => {
     const category = expenseForm.category.trim()
@@ -762,7 +798,7 @@ export function DashboardClient({
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <Metric
               label="Salary account"
               value={money(salaryAccountBalance)}
@@ -781,6 +817,12 @@ export function DashboardClient({
               detail={`${savingsEntries.length + incomeEntries.filter((i) => i.destination === 'savings').length} deposit${
                 savingsEntries.length + incomeEntries.filter((i) => i.destination === 'savings').length === 1 ? '' : 's'
               }`}
+              tone="neutral"
+            />
+            <Metric
+              label="SIP account"
+              value={money(sipTotalContributed)}
+              detail={`contributed till date · ${sips.length} active SIP${sips.length === 1 ? '' : 's'}`}
               tone="neutral"
             />
             <Metric
@@ -1261,6 +1303,11 @@ export function DashboardClient({
           subtitle="Set up recurring investment reminders — we'll flag them a couple of days before they're due."
           onClose={() => setShowAddSip(false)}
         >
+          <div className="rounded-lg bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">Total contributed till date</p>
+            <p className="mt-1 text-xl font-semibold tracking-tight">{money(sipTotalContributed)}</p>
+          </div>
+
           <label className="text-sm font-medium">
             Name
             <input
@@ -1327,6 +1374,20 @@ export function DashboardClient({
                   <button aria-label="Delete SIP" onClick={() => deleteSip(sip.id)}>
                     <X className="size-4 text-muted-foreground hover:text-red-600" />
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {sipContributions.length > 0 && (
+            <div className="flex flex-col gap-2 border-t pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{monthLabel} contributions</p>
+              {sipContributions.map((c) => (
+                <div key={c.id} className="flex items-center justify-between text-sm">
+                  <span>
+                    ⇄ {c.name} <span className="text-muted-foreground">· from {c.fromAccount === 'savings' ? 'Savings' : 'Salary'}</span>
+                  </span>
+                  <span className="font-medium">{money(c.amount)}</span>
                 </div>
               ))}
             </div>

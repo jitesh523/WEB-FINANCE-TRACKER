@@ -93,10 +93,12 @@ export const income = pgTable('income', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
-// A recurring SIP (Systematic Investment Plan) reminder: which day of the
-// month it's due, how much, and which account it should come out of. This
-// is a planning/reminder record only — no transaction is auto-created,
-// since there's no real bank connection to safely automate a deduction.
+// A recurring SIP (Systematic Investment Plan): which day of the month it's
+// due, how much, and which account it's cut from. On or after that day each
+// month, it's automatically "executed" once (see /api/sip) — the amount is
+// deducted from fromAccount and credited into the SIP account, exactly like
+// an internal Transfer, just triggered by the date instead of a click.
+// `lastExecutedMonth` ('YYYY-MM') stops it from firing twice in one month.
 export const sipPlans = pgTable('sip_plans', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -104,5 +106,22 @@ export const sipPlans = pgTable('sip_plans', {
   amount: numeric('amount').notNull(),
   dayOfMonth: integer('day_of_month').notNull(),
   fromAccount: text('from_account').notNull().default('salary'),
+  lastExecutedMonth: text('last_executed_month'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// One row per executed SIP contribution — the ledger backing the SIP
+// account's balance for a given month. `sipId` is nullable and set to null
+// (not cascade-deleted) if the plan is later removed, so deleting a plan
+// stops future reminders/executions without erasing money that already moved.
+export const sipContributions = pgTable('sip_contributions', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sipId: integer('sip_id').references(() => sipPlans.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  amount: numeric('amount').notNull(),
+  fromAccount: text('from_account').notNull(),
+  month: text('month').notNull(),
+  date: date('date').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })

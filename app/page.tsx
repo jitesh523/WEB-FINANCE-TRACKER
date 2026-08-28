@@ -3,8 +3,8 @@ import { requireUserId } from '@/lib/get-session'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
 import { db } from '@/lib/db'
-import { expenses, savings, salary, income, sipPlans } from '@/lib/db/schema'
-import { and, eq, gte, lte, desc } from 'drizzle-orm'
+import { expenses, savings, salary, income, sipPlans, sipContributions } from '@/lib/db/schema'
+import { and, eq, gte, lte, desc, sql } from 'drizzle-orm'
 import { DashboardClient } from '@/components/dashboard-client'
 import { monthRange, currentMonthISO } from '@/lib/date-utils'
 
@@ -45,6 +45,17 @@ export default async function Page() {
 
   const sipRows = await db.select().from(sipPlans).where(eq(sipPlans.userId, userId)).orderBy(desc(sipPlans.createdAt))
 
+  const sipContributionRows = await db
+    .select()
+    .from(sipContributions)
+    .where(and(eq(sipContributions.userId, userId), eq(sipContributions.month, month)))
+    .orderBy(desc(sipContributions.date))
+
+  const [sipTotalRow] = await db
+    .select({ total: sql<string>`coalesce(sum(${sipContributions.amount}), 0)` })
+    .from(sipContributions)
+    .where(eq(sipContributions.userId, userId))
+
   return (
     <DashboardClient
       userName={userName}
@@ -78,6 +89,14 @@ export default async function Page() {
         dayOfMonth: s.dayOfMonth,
         fromAccount: s.fromAccount,
       }))}
+      initialSipContributions={sipContributionRows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        amount: Number(c.amount),
+        fromAccount: c.fromAccount,
+        date: c.date,
+      }))}
+      initialSipTotalContributed={Number(sipTotalRow?.total || 0)}
     />
   )
 }

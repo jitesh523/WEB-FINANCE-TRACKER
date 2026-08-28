@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Groq from 'groq-sdk'
 import { db } from '@/lib/db'
-import { expenses, savings, salary, income } from '@/lib/db/schema'
+import { expenses, savings, salary, income, sipPlans, sipContributions } from '@/lib/db/schema'
 import { requireUserId } from '@/lib/get-session'
 import { monthRange } from '@/lib/date-utils'
-import { and, eq, gte, lte, desc } from 'drizzle-orm'
+import { and, eq, gte, lte, desc, sql } from 'drizzle-orm'
 
 export async function POST(req: NextRequest) {
   const userId = await requireUserId()
@@ -45,6 +45,13 @@ export async function POST(req: NextRequest) {
     .from(income)
     .where(and(eq(income.userId, userId), gte(income.date, start), lte(income.date, end)))
 
+  const sipRows = await db.select().from(sipPlans).where(eq(sipPlans.userId, userId))
+  const [sipTotalRow] = await db
+    .select({ total: sql<string>`coalesce(sum(${sipContributions.amount}), 0)` })
+    .from(sipContributions)
+    .where(eq(sipContributions.userId, userId))
+  const sipTotalContributed = Number(sipTotalRow?.total || 0)
+
   const salaryAmount = salaryRow?.amount ? Number(salaryRow.amount) : 0
   const totalSpent = expenseRows.reduce((sum, e) => sum + Number(e.amount), 0)
   const totalSaved = savingsRows.reduce((sum, s) => sum + Number(s.amount), 0)
@@ -76,7 +83,12 @@ export async function POST(req: NextRequest) {
       .map((i) => `- ${i.date}: ${i.source || 'Extra income'} — ₹${Number(i.amount).toFixed(2)}`)
       .join('\n') || '- No extra income this month'
 
-  const systemPrompt = `You are the AI assistant embedded in DD Finance Calculator, a personal finance tracking app. The user has two separate accounts: a Salary account (their spending money) and a Savings account. Money can be transferred between the two, and income can be routed into either one. Answer the user's questions about their own finances using ONLY the real data below (amounts in Indian Rupees, ₹). Be concise and practical — a few sentences unless asked for more detail. Respond in plain prose only — no markdown formatting (no asterisks, bullet points, headers, or bold text). Never give personalized investment advice (specific stocks, funds, or products) — keep any investment ideas general (e.g. emergency fund, recurring deposit, index funds). If asked something unrelated to their finances, politely redirect to finance topics.
+  const sipLines =
+    sipRows
+      .map((s) => `- "${s.name}": ₹${Number(s.amount).toFixed(2)} on day ${s.dayOfMonth}, cut from ${s.fromAccount} account`)
+      .join('\n') || '- No SIPs set up'
+
+  const systemPrompt = `You are the AI assistant embedded in DD Finance Calculator, a personal finance tracking app. The user has three accounts: a Salary account (their spending money), a Savings account, and a SIP account (recurring investments). Money can be transferred between Salary and Savings, income can be routed into either, and each SIP automatically moves money from its chosen account into the SIP account on its scheduled day every month. Answer the user's questions about their own finances using ONLY the real data below (amounts in Indian Rupees, ₹). Be concise and practical — a few sentences unless asked for more detail. Respond in plain prose only — no markdown formatting (no asterisks, bullet points, headers, or bold text). Never give personalized investment advice (specific stocks, funds, or products) — keep any investment ideas general (e.g. emergency fund, recurring deposit, index funds). If asked something unrelated to their finances, politely redirect to finance topics.
 
 Financial data for ${month}:
 Monthly salary credited: ₹${salaryAmount.toFixed(2)}
@@ -86,6 +98,10 @@ Total spent: ₹${totalSpent.toFixed(2)}
 Net moved from salary into savings: ₹${savingsFromSalary.toFixed(2)}
 Salary account balance (available to spend): ₹${salaryAccountBalance.toFixed(2)}
 Savings account balance: ₹${savingsAccountBalance.toFixed(2)}
+SIP account balance (total contributed all-time, not just this month): ₹${sipTotalContributed.toFixed(2)}
+
+Active SIPs:
+${sipLines}
 
 Spending by category:
 ${categoryLines}

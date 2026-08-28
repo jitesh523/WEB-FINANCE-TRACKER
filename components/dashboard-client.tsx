@@ -91,6 +91,7 @@ export function DashboardClient({
   const [resetDayDate, setResetDayDate] = useState(todayISO())
   const [checkedResetKeys, setCheckedResetKeys] = useState<Set<string>>(new Set())
   const [showAddSip, setShowAddSip] = useState(false)
+  const [showLogContribution, setShowLogContribution] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
 
   const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
@@ -102,6 +103,13 @@ export function DashboardClient({
     amount: '',
     dayOfMonth: '',
     fromAccount: 'salary',
+  })
+  const [logContribForm, setLogContribForm] = useState<{ sipId: string; name: string; amount: string; date: string; fromAccount: string }>({
+    sipId: '',
+    name: '',
+    amount: '',
+    date: todayISO(),
+    fromAccount: 'none',
   })
   const [transferForm, setTransferForm] = useState<{
     amount: string
@@ -505,6 +513,36 @@ export function DashboardClient({
   const deleteSip = async (id: number) => {
     await fetch(`/api/sip?id=${id}`, { method: 'DELETE' })
     setSips(sips.filter((s) => s.id !== id))
+  }
+
+  const logContribution = async () => {
+    const amount = Number(logContribForm.amount)
+    const linkedSip = logContribForm.sipId ? sips.find((s) => s.id === Number(logContribForm.sipId)) : undefined
+    const name = linkedSip ? linkedSip.name : logContribForm.name.trim()
+    if (!name || !amount || amount <= 0 || !logContribForm.date) return
+    const res = await fetch('/api/sip-contributions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sipId: logContribForm.sipId ? Number(logContribForm.sipId) : null,
+        name,
+        amount,
+        date: logContribForm.date,
+        fromAccount: logContribForm.fromAccount,
+      }),
+    })
+    if (res.ok) {
+      const { contribution } = await res.json()
+      setSipTotalContributed((t) => t + amount)
+      if (contribution.month === viewMonth) {
+        setSipContributions([{ ...contribution, amount: Number(contribution.amount) }, ...sipContributions])
+      }
+      if (logContribForm.fromAccount === 'salary' || logContribForm.fromAccount === 'savings') {
+        await loadMonth(viewMonth)
+      }
+      setLogContribForm({ sipId: '', name: '', amount: '', date: todayISO(), fromAccount: 'none' })
+      setShowLogContribution(false)
+    }
   }
 
   const sendChatMessage = async (text: string) => {
@@ -1306,7 +1344,106 @@ export function DashboardClient({
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">Total contributed till date</p>
             <p className="mt-1 text-xl font-semibold tracking-tight">{money(sipTotalContributed)}</p>
+            <button
+              type="button"
+              onClick={() => setShowLogContribution((v) => !v)}
+              className="mt-3 text-sm font-medium text-primary hover:underline"
+            >
+              {showLogContribution ? 'Cancel' : "Already paid one? Log it"}
+            </button>
           </div>
+
+          {showLogContribution && (
+            <div className="flex flex-col gap-3 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">
+                For SIP payments you already made — before setting this up here, or an extra one-off top-up.
+              </p>
+              <label className="text-sm font-medium">
+                Which SIP
+                <select
+                  value={logContribForm.sipId}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    const plan = sips.find((s) => s.id === Number(id))
+                    setLogContribForm({ ...logContribForm, sipId: id, name: plan ? plan.name : logContribForm.name })
+                  }}
+                  className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Not linked to a specific SIP</option>
+                  {sips.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!logContribForm.sipId && (
+                <label className="text-sm font-medium">
+                  Name
+                  <input
+                    value={logContribForm.name}
+                    onChange={(e) => setLogContribForm({ ...logContribForm, name: e.target.value })}
+                    className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="e.g. Index Fund SIP"
+                  />
+                </label>
+              )}
+              <label className="text-sm font-medium">
+                Amount
+                <input
+                  value={logContribForm.amount}
+                  onChange={(e) => setLogContribForm({ ...logContribForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
+                  className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="₹ 0"
+                  inputMode="numeric"
+                />
+              </label>
+              <label className="text-sm font-medium">
+                Date paid
+                <input
+                  type="date"
+                  value={logContribForm.date}
+                  max={todayISO()}
+                  onChange={(e) => setLogContribForm({ ...logContribForm, date: e.target.value })}
+                  className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                />
+              </label>
+              <label className="text-sm font-medium">
+                Deduct from
+                <div className="mt-2 flex rounded-lg border p-1">
+                  <button
+                    type="button"
+                    onClick={() => setLogContribForm({ ...logContribForm, fromAccount: 'none' })}
+                    className={`flex-1 rounded-md py-2 text-sm font-medium ${logContribForm.fromAccount === 'none' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Don&apos;t deduct
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogContribForm({ ...logContribForm, fromAccount: 'salary' })}
+                    className={`flex-1 rounded-md py-2 text-sm font-medium ${logContribForm.fromAccount === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Salary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogContribForm({ ...logContribForm, fromAccount: 'savings' })}
+                    className={`flex-1 rounded-md py-2 text-sm font-medium ${logContribForm.fromAccount === 'savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Savings
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {logContribForm.fromAccount === 'none'
+                    ? "Only adds to your SIP total — use this for money that already left your account before you started tracking here."
+                    : `Also records this as spent from your ${logContribForm.fromAccount === 'salary' ? 'Salary' : 'Savings'} account on this date.`}
+                </p>
+              </label>
+              <button onClick={logContribution} className="rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+                Log contribution
+              </button>
+            </div>
+          )}
 
           <label className="text-sm font-medium">
             Name
@@ -1385,7 +1522,10 @@ export function DashboardClient({
               {sipContributions.map((c) => (
                 <div key={c.id} className="flex items-center justify-between text-sm">
                   <span>
-                    ⇄ {c.name} <span className="text-muted-foreground">· from {c.fromAccount === 'savings' ? 'Savings' : 'Salary'}</span>
+                    ⇄ {c.name}{' '}
+                    <span className="text-muted-foreground">
+                      · {c.fromAccount === 'none' ? 'logged manually' : `from ${c.fromAccount === 'savings' ? 'Savings' : 'Salary'}`}
+                    </span>
                   </span>
                   <span className="font-medium">{money(c.amount)}</span>
                 </div>

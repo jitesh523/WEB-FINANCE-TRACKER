@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { sipPlans, sipContributions, expenses, savings } from '@/lib/db/schema'
+import { sipPlans, sipContributions } from '@/lib/db/schema'
 import { requireUserId } from '@/lib/get-session'
 import { currentMonthISO, todayISO } from '@/lib/date-utils'
+import { deductForSip } from '@/lib/sip'
 import { and, eq, sql } from 'drizzle-orm'
 
 async function getTotalContributed(userId: string) {
@@ -28,23 +29,7 @@ async function executeDuePlans(userId: string) {
   for (const plan of plans) {
     if (plan.dayOfMonth > todayNum || plan.lastExecutedMonth === month) continue
 
-    if (plan.fromAccount === 'savings') {
-      await db.insert(savings).values({
-        userId,
-        amount: String(-Number(plan.amount)),
-        note: `SIP: ${plan.name}`,
-        fundSource: 'outside',
-        date: today,
-      })
-    } else {
-      await db.insert(expenses).values({
-        userId,
-        title: plan.name,
-        category: 'SIP',
-        amount: String(plan.amount),
-        date: today,
-      })
-    }
+    await deductForSip(userId, { name: plan.name, amount: Number(plan.amount), date: today, fromAccount: plan.fromAccount })
 
     await db.insert(sipContributions).values({
       userId,

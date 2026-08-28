@@ -22,6 +22,7 @@ import { todayISO, toLocalISODate } from '@/lib/date-utils'
 type Expense = { id: number; title: string; category: string; amount: number; date: string }
 type Saving = { id: number; amount: number; note: string | null; fundSource: string; date: string }
 type IncomeEntry = { id: number; amount: number; source: string | null; destination: string; date: string }
+type SipPlan = { id: number; name: string; amount: number; dayOfMonth: number; fromAccount: string }
 
 const CATEGORY_META: Record<string, { color: string; icon: string }> = {
   'Food & Dining': { color: 'bg-chart-1', icon: '🍜' },
@@ -50,6 +51,7 @@ export function DashboardClient({
   initialExpenses,
   initialSavings,
   initialIncome,
+  initialSips,
 }: {
   userName: string
   month: string
@@ -57,12 +59,14 @@ export function DashboardClient({
   initialExpenses: Expense[]
   initialSavings: Saving[]
   initialIncome: IncomeEntry[]
+  initialSips: SipPlan[]
 }) {
   const router = useRouter()
   const [expenses, setExpenses] = useState(initialExpenses)
   const [savingsEntries, setSavingsEntries] = useState(initialSavings)
   const [incomeEntries, setIncomeEntries] = useState(initialIncome)
   const [salaryAmount, setSalaryAmount] = useState(initialSalary)
+  const [sips, setSips] = useState(initialSips)
 
   const [viewMonth, setViewMonth] = useState(month)
   const [monthMenuOpen, setMonthMenuOpen] = useState(false)
@@ -79,11 +83,19 @@ export function DashboardClient({
   const [showResetDay, setShowResetDay] = useState(false)
   const [resetDayDate, setResetDayDate] = useState(todayISO())
   const [checkedResetKeys, setCheckedResetKeys] = useState<Set<string>>(new Set())
+  const [showAddSip, setShowAddSip] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
 
   const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
   const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
   const [savingsForm, setSavingsForm] = useState({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
   const [incomeForm, setIncomeForm] = useState({ amount: '', source: '', destination: 'salary', date: todayISO() })
+  const [sipForm, setSipForm] = useState<{ name: string; amount: string; dayOfMonth: string; fromAccount: string }>({
+    name: '',
+    amount: '',
+    dayOfMonth: '',
+    fromAccount: 'salary',
+  })
   const [transferForm, setTransferForm] = useState<{
     amount: string
     direction: 'salary_to_savings' | 'savings_to_salary'
@@ -119,6 +131,43 @@ export function DashboardClient({
   const salaryAccountBalance = salaryAmount + incomeToSalary - totalSpent - savingsFromSalary
   const savingsAccountBalance = totalSaved + incomeToSavings
   const savingsRate = totalAvailableIncome > 0 ? (savingsAccountBalance / totalAvailableIncome) * 100 : 0
+
+  // Live alerts, recomputed from whatever data already exists — no push
+  // notifications or background jobs, just what's worth flagging right now.
+  const notifications = useMemo(() => {
+    if (!isCurrentMonth) return []
+    const list: { id: string; message: string }[] = []
+    const todayNum = new Date().getDate()
+
+    for (const sip of sips) {
+      const daysUntil = sip.dayOfMonth - todayNum
+      if (daysUntil >= 0 && daysUntil <= 2) {
+        const acct = sip.fromAccount === 'savings' ? 'Savings' : 'Salary'
+        const when = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : `in ${daysUntil} days`
+        list.push({
+          id: `sip-${sip.id}`,
+          message: `Keep ${money(sip.amount)} ready in your ${acct} account — "${sip.name}" SIP is due ${when} (day ${sip.dayOfMonth}).`,
+        })
+      }
+    }
+
+    const hasSalaryActivity = salaryAmount > 0
+    if (hasSalaryActivity && salaryAccountBalance < 10000) {
+      list.push({ id: 'low-salary', message: `Low balance: your Salary account is down to ${money(salaryAccountBalance)}.` })
+    }
+    const hasSavingsActivity = savingsEntries.length > 0 || incomeEntries.some((i) => i.destination === 'savings')
+    if (hasSavingsActivity && savingsAccountBalance < 10000) {
+      list.push({ id: 'low-savings', message: `Low balance: your Savings account is down to ${money(savingsAccountBalance)}.` })
+    }
+
+    const today = todayISO()
+    const spentToday = expenses.filter((e) => e.date === today).reduce((s, e) => s + e.amount, 0)
+    if (spentToday > 10000) {
+      list.push({ id: 'high-spend-today', message: `You've spent ${money(spentToday)} today — that's over your ₹10,000 daily flag.` })
+    }
+
+    return list
+  }, [isCurrentMonth, sips, salaryAmount, salaryAccountBalance, savingsAccountBalance, savingsEntries, incomeEntries, expenses])
 
   const byCategory = useMemo(() => {
     const map: Record<string, number> = {}
@@ -401,6 +450,27 @@ export function DashboardClient({
     }
   }
 
+  const addSip = async () => {
+    const amount = Number(sipForm.amount)
+    const day = Number(sipForm.dayOfMonth)
+    if (!sipForm.name || !amount || amount <= 0 || !day || day < 1 || day > 31) return
+    const res = await fetch('/api/sip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: sipForm.name, amount, dayOfMonth: day, fromAccount: sipForm.fromAccount }),
+    })
+    if (res.ok) {
+      const { sip } = await res.json()
+      setSips([{ ...sip, amount: Number(sip.amount) }, ...sips])
+      setSipForm({ name: '', amount: '', dayOfMonth: '', fromAccount: 'salary' })
+    }
+  }
+
+  const deleteSip = async (id: number) => {
+    await fetch(`/api/sip?id=${id}`, { method: 'DELETE' })
+    setSips(sips.filter((s) => s.id !== id))
+  }
+
   const sendChatMessage = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed || chatLoading) return
@@ -432,7 +502,8 @@ export function DashboardClient({
   }
 
   const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const greeting =
+    hour < 11 ? { jp: 'Ohayo', en: 'good morning' } : hour < 17 ? { jp: 'Konnichiwa', en: 'good afternoon' } : { jp: 'Konbanwa', en: 'good evening' }
   const todayLabel = new Date().toLocaleDateString('en-IN', {
     weekday: 'long',
     day: 'numeric',
@@ -511,14 +582,42 @@ export function DashboardClient({
           <div>
             <p className="text-sm text-muted-foreground">{todayLabel}</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-              {greeting}, {userName}
+              {greeting.jp}, {userName}
+              <span className="ml-2 text-base font-normal text-muted-foreground">({greeting.en})</span>
             </h1>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <button aria-label="Notifications" className="rounded-lg border p-2.5 text-muted-foreground">
-              <Bell />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications((v) => !v)}
+                aria-label="Notifications"
+                className="relative rounded-lg border p-2.5 text-muted-foreground"
+              >
+                <Bell />
+                {notifications.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-medium text-white">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border bg-card py-2 shadow-lg sm:w-80">
+                  <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notifications</p>
+                  {notifications.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">You&apos;re all caught up.</p>
+                  ) : (
+                    <div className="flex flex-col">
+                      {notifications.map((n) => (
+                        <div key={n.id} className="border-t px-3 py-2.5 text-sm first:border-0">
+                          {n.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               onClick={handleLogout}
               aria-label="Log out"
@@ -551,6 +650,12 @@ export function DashboardClient({
                   className="hidden items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium lg:flex"
                 >
                   Transfer
+                </button>
+                <button
+                  onClick={() => setShowAddSip(true)}
+                  className="hidden items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium lg:flex"
+                >
+                  SIPs
                 </button>
                 <button
                   onClick={() => openResetDay(todayISO())}
@@ -604,6 +709,15 @@ export function DashboardClient({
                         className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
                       >
                         Transfer
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddSip(true)
+                          setMoreMenuOpen(false)
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                      >
+                        SIPs
                       </button>
                       <button
                         onClick={() => {
@@ -1138,6 +1252,85 @@ export function DashboardClient({
           <button onClick={addTransfer} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Transfer
           </button>
+        </Modal>
+      )}
+
+      {showAddSip && (
+        <Modal
+          title="SIPs"
+          subtitle="Set up recurring investment reminders — we'll flag them a couple of days before they're due."
+          onClose={() => setShowAddSip(false)}
+        >
+          <label className="text-sm font-medium">
+            Name
+            <input
+              value={sipForm.name}
+              onChange={(e) => setSipForm({ ...sipForm, name: e.target.value })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. Index Fund SIP"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Amount
+            <input
+              value={sipForm.amount}
+              onChange={(e) => setSipForm({ ...sipForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="₹ 0"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Day of month
+            <input
+              value={sipForm.dayOfMonth}
+              onChange={(e) => setSipForm({ ...sipForm, dayOfMonth: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. 5"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Cut from
+            <div className="mt-2 flex rounded-lg border p-1">
+              <button
+                type="button"
+                onClick={() => setSipForm({ ...sipForm, fromAccount: 'salary' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${sipForm.fromAccount === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Salary account
+              </button>
+              <button
+                type="button"
+                onClick={() => setSipForm({ ...sipForm, fromAccount: 'savings' })}
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${sipForm.fromAccount === 'savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+              >
+                Savings account
+              </button>
+            </div>
+          </label>
+          <button onClick={addSip} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+            Add SIP
+          </button>
+
+          {sips.length > 0 && (
+            <div className="mt-2 flex flex-col gap-2 border-t pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your SIPs</p>
+              {sips.map((sip) => (
+                <div key={sip.id} className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm">
+                  <div>
+                    <p className="font-medium">{sip.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {money(sip.amount)} on day {sip.dayOfMonth} · from {sip.fromAccount === 'savings' ? 'Savings' : 'Salary'} account
+                    </p>
+                  </div>
+                  <button aria-label="Delete SIP" onClick={() => deleteSip(sip.id)}>
+                    <X className="size-4 text-muted-foreground hover:text-red-600" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
 

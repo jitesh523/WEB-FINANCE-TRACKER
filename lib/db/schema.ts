@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, numeric, serial, date } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, numeric, serial, integer, date } from 'drizzle-orm/pg-core'
 
 // --- better-auth's own tables (standard shape it expects from the Drizzle adapter) ---
 
@@ -90,5 +90,19 @@ export const income = pgTable('income', {
   source: text('source'),
   destination: text('destination').notNull().default('salary'),
   date: date('date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// A recurring SIP (Systematic Investment Plan) reminder: which day of the
+// month it's due, how much, and which account it should come out of. This
+// is a planning/reminder record only — no transaction is auto-created,
+// since there's no real bank connection to safely automate a deduction.
+export const sipPlans = pgTable('sip_plans', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  amount: numeric('amount').notNull(),
+  dayOfMonth: integer('day_of_month').notNull(),
+  fromAccount: text('from_account').notNull().default('salary'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })

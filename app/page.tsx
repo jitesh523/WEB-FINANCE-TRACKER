@@ -3,7 +3,7 @@ import { requireUserId } from '@/lib/get-session'
 import { auth } from '@/lib/auth'
 import { headers } from 'next/headers'
 import { db } from '@/lib/db'
-import { expenses, savings, salary, income } from '@/lib/db/schema'
+import { expenses, savings, salary, income, sipPlans } from '@/lib/db/schema'
 import { and, eq, gte, lte, desc } from 'drizzle-orm'
 import { DashboardClient } from '@/components/dashboard-client'
 import { monthRange, currentMonthISO } from '@/lib/date-utils'
@@ -43,6 +43,8 @@ export default async function Page() {
     .where(and(eq(income.userId, userId), gte(income.date, start), lte(income.date, end)))
     .orderBy(desc(income.date))
 
+  const sipRows = await db.select().from(sipPlans).where(eq(sipPlans.userId, userId)).orderBy(desc(sipPlans.createdAt))
+
   return (
     <DashboardClient
       userName={userName}
@@ -68,6 +70,13 @@ export default async function Page() {
         source: i.source,
         destination: i.destination,
         date: i.date,
+      }))}
+      initialSips={sipRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        amount: Number(s.amount),
+        dayOfMonth: s.dayOfMonth,
+        fromAccount: s.fromAccount,
       }))}
     />
   )

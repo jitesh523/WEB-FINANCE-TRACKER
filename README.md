@@ -5,7 +5,7 @@ savings, with an AI chat (powered by Groq) that can answer questions about
 your real spending data. Click any day in the spending chart to see that
 day's transactions, or use the month picker to browse past months and see
 that month's own chart, category breakdown, and statement. Each person who
-signs up gets their own private account — nothing is shared between users.
+signs up gets their own private account — nothing is shared between users.jauw
 
 ## Stack
 - **Next.js 16 + React 19 + Tailwind + shadcn/ui** — the app itself

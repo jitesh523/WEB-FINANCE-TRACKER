@@ -122,10 +122,21 @@ export function DashboardClient({
   const [showLogContribution, setShowLogContribution] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
 
-  const [expenseForm, setExpenseForm] = useState({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
+  // Expenses and income are logged as a batch of rows sharing one date — so a
+  // day's worth of spending/income can be added all at once instead of
+  // reopening the modal for every single item.
+  type ExpenseRow = { title: string; amount: string; category: string }
+  const blankExpenseRow: ExpenseRow = { title: '', amount: '', category: 'Food & Dining' }
+  const [expenseDate, setExpenseDate] = useState(todayISO())
+  const [expenseRows, setExpenseRows] = useState<ExpenseRow[]>([blankExpenseRow])
+
+  type IncomeRow = { amount: string; source: string; destination: string }
+  const blankIncomeRow: IncomeRow = { amount: '', source: '', destination: 'salary' }
+  const [incomeDate, setIncomeDate] = useState(todayISO())
+  const [incomeRows, setIncomeRows] = useState<IncomeRow[]>([blankIncomeRow])
+
   const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
   const [savingsForm, setSavingsForm] = useState({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
-  const [incomeForm, setIncomeForm] = useState({ amount: '', source: '', destination: 'salary', date: todayISO() })
   const [sipForm, setSipForm] = useState<{ name: string; amount: string; dayOfMonth: string; fromAccount: string }>({
     name: '',
     amount: '',
@@ -351,26 +362,34 @@ export function DashboardClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const addExpense = async () => {
-    const category = expenseForm.category.trim()
-    if (!expenseForm.title || !expenseForm.amount || !category) return
-    const res = await fetch('/api/expenses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: expenseForm.title,
-        category,
-        amount: Number(expenseForm.amount),
-        date: expenseForm.date || todayISO(),
-      }),
-    })
-    if (res.ok) {
-      const { expense } = await res.json()
-      setExpenses([{ ...expense, amount: Number(expense.amount) }, ...expenses])
-      setExpenseForm({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
-      setShowAddExpense(false)
+  const updateExpenseRow = (idx: number, patch: Partial<ExpenseRow>) =>
+    setExpenseRows(expenseRows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  const addExpenseRow = () => setExpenseRows([...expenseRows, { ...blankExpenseRow }])
+  const removeExpenseRow = (idx: number) => setExpenseRows(expenseRows.filter((_, i) => i !== idx))
+
+  const saveExpenses = async () => {
+    const valid = expenseRows.filter((r) => r.title.trim() && Number(r.amount) > 0 && r.category.trim())
+    if (valid.length === 0) return
+    const date = expenseDate || todayISO()
+    const results = await Promise.all(
+      valid.map((r) =>
+        fetch('/api/expenses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: r.title.trim(), category: r.category.trim(), amount: Number(r.amount), date }),
+        }).then((res) => (res.ok ? res.json() : null)),
+      ),
+    )
+    const saved = results
+      .filter((r): r is { expense: Expense } => r !== null)
+      .map((r) => ({ ...r.expense, amount: Number(r.expense.amount) }))
+    if (saved.length > 0) {
+      setExpenses([...saved, ...expenses])
       refreshAccountBalances()
     }
+    setExpenseRows([{ ...blankExpenseRow }])
+    setExpenseDate(todayISO())
+    setShowAddExpense(false)
   }
 
   const toggleResetKey = (key: string) => {
@@ -465,26 +484,34 @@ export function DashboardClient({
     }
   }
 
-  const addIncome = async () => {
-    const amount = Number(incomeForm.amount)
-    if (!amount || amount <= 0) return
-    const res = await fetch('/api/income', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount,
-        source: incomeForm.source,
-        destination: incomeForm.destination,
-        date: incomeForm.date || todayISO(),
-      }),
-    })
-    if (res.ok) {
-      const { income: row } = await res.json()
-      setIncomeEntries([{ ...row, amount: Number(row.amount) }, ...incomeEntries])
-      setIncomeForm({ amount: '', source: '', destination: 'salary', date: todayISO() })
-      setShowAddIncome(false)
+  const updateIncomeRow = (idx: number, patch: Partial<IncomeRow>) =>
+    setIncomeRows(incomeRows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  const addIncomeRow = () => setIncomeRows([...incomeRows, { ...blankIncomeRow }])
+  const removeIncomeRow = (idx: number) => setIncomeRows(incomeRows.filter((_, i) => i !== idx))
+
+  const saveIncome = async () => {
+    const valid = incomeRows.filter((r) => Number(r.amount) > 0)
+    if (valid.length === 0) return
+    const date = incomeDate || todayISO()
+    const results = await Promise.all(
+      valid.map((r) =>
+        fetch('/api/income', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: Number(r.amount), source: r.source, destination: r.destination, date }),
+        }).then((res) => (res.ok ? res.json() : null)),
+      ),
+    )
+    const saved = results
+      .filter((r): r is { income: IncomeEntry } => r !== null)
+      .map((r) => ({ ...r.income, amount: Number(r.income.amount) }))
+    if (saved.length > 0) {
+      setIncomeEntries([...saved, ...incomeEntries])
       refreshAccountBalances()
     }
+    setIncomeRows([{ ...blankIncomeRow }])
+    setIncomeDate(todayISO())
+    setShowAddIncome(false)
   }
 
   // A transfer is stored as a savings entry: salary→savings is a normal
@@ -1117,54 +1144,75 @@ export function DashboardClient({
       </section>
 
       {showAddExpense && (
-        <Modal title="Add an expense" subtitle="Keep your spending picture up to date." onClose={() => setShowAddExpense(false)}>
-          <label className="text-sm font-medium">
-            What was it for?
-            <input
-              value={expenseForm.title}
-              onChange={(e) => setExpenseForm({ ...expenseForm, title: e.target.value })}
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
-              placeholder="e.g. Coffee with friends"
-            />
-          </label>
-          <label className="text-sm font-medium">
-            Amount
-            <input
-              value={expenseForm.amount}
-              onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
-              placeholder="₹ 0"
-              inputMode="numeric"
-            />
-          </label>
-          <label className="text-sm font-medium">
-            Category
-            <input
-              value={expenseForm.category}
-              onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-              list="expense-categories"
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
-              placeholder="e.g. Food & Dining, Gym, Pet Care"
-            />
-            <datalist id="expense-categories">
-              {Object.keys(CATEGORY_META).map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </label>
+        <Modal
+          title="Add expenses"
+          subtitle="Add everything from today — or any day — in one go."
+          onClose={() => setShowAddExpense(false)}
+        >
           <label className="text-sm font-medium">
             Date
             <input
               type="date"
-              value={expenseForm.date}
+              value={expenseDate}
               min={entryDateMin}
               max={entryDateMax}
-              onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
+              onChange={(e) => setExpenseDate(e.target.value)}
               className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
-          <button onClick={addExpense} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
-            Save expense
+
+          <datalist id="expense-categories">
+            {Object.keys(CATEGORY_META).map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+
+          <div className="flex flex-col gap-3">
+            {expenseRows.map((row, idx) => (
+              <div key={idx} className="flex flex-col gap-2 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expense {idx + 1}</p>
+                  {expenseRows.length > 1 && (
+                    <button type="button" aria-label="Remove expense" onClick={() => removeExpenseRow(idx)}>
+                      <X className="size-4 text-muted-foreground hover:text-red-600" />
+                    </button>
+                  )}
+                </div>
+                <input
+                  value={row.title}
+                  onChange={(e) => updateExpenseRow(idx, { title: e.target.value })}
+                  className="w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="e.g. Coffee with friends"
+                />
+                <div className="flex gap-2">
+                  <input
+                    value={row.amount}
+                    onChange={(e) => updateExpenseRow(idx, { amount: e.target.value.replace(/[^0-9]/g, '') })}
+                    className="w-1/2 rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="₹ 0"
+                    inputMode="numeric"
+                  />
+                  <input
+                    value={row.category}
+                    onChange={(e) => updateExpenseRow(idx, { category: e.target.value })}
+                    list="expense-categories"
+                    className="w-1/2 rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Category"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={addExpenseRow}
+            className="rounded-lg border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            + Add another expense
+          </button>
+          <button onClick={saveExpenses} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+            Save {expenseRows.length > 1 ? `${expenseRows.length} expenses` : 'expense'}
           </button>
         </Modal>
       )}
@@ -1248,58 +1296,78 @@ export function DashboardClient({
       )}
 
       {showAddIncome && (
-        <Modal title="Add income" subtitle="Log money you received outside your salary." onClose={() => setShowAddIncome(false)}>
-          <label className="text-sm font-medium">
-            Amount
-            <input
-              value={incomeForm.amount}
-              onChange={(e) => setIncomeForm({ ...incomeForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
-              placeholder="₹ 0"
-              inputMode="numeric"
-            />
-          </label>
-          <label className="text-sm font-medium">
-            From (optional)
-            <input
-              value={incomeForm.source}
-              onChange={(e) => setIncomeForm({ ...incomeForm, source: e.target.value })}
-              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
-              placeholder="e.g. Dad, freelance project"
-            />
-          </label>
-          <label className="text-sm font-medium">
-            Add this to
-            <div className="mt-2 flex rounded-lg border p-1">
-              <button
-                type="button"
-                onClick={() => setIncomeForm({ ...incomeForm, destination: 'salary' })}
-                className={`flex-1 rounded-md py-2 text-sm font-medium ${incomeForm.destination === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-              >
-                Salary account
-              </button>
-              <button
-                type="button"
-                onClick={() => setIncomeForm({ ...incomeForm, destination: 'savings' })}
-                className={`flex-1 rounded-md py-2 text-sm font-medium ${incomeForm.destination === 'savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-              >
-                Savings account
-              </button>
-            </div>
-          </label>
+        <Modal
+          title="Add income"
+          subtitle="Log everything you received today — or any day — in one go."
+          onClose={() => setShowAddIncome(false)}
+        >
           <label className="text-sm font-medium">
             Date
             <input
               type="date"
-              value={incomeForm.date}
+              value={incomeDate}
               min={entryDateMin}
               max={entryDateMax}
-              onChange={(e) => setIncomeForm({ ...incomeForm, date: e.target.value })}
+              onChange={(e) => setIncomeDate(e.target.value)}
               className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
-          <button onClick={addIncome} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
-            Save
+
+          <div className="flex flex-col gap-3">
+            {incomeRows.map((row, idx) => (
+              <div key={idx} className="flex flex-col gap-2 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Income {idx + 1}</p>
+                  {incomeRows.length > 1 && (
+                    <button type="button" aria-label="Remove income" onClick={() => removeIncomeRow(idx)}>
+                      <X className="size-4 text-muted-foreground hover:text-red-600" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={row.amount}
+                    onChange={(e) => updateIncomeRow(idx, { amount: e.target.value.replace(/[^0-9]/g, '') })}
+                    className="w-1/2 rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="₹ 0"
+                    inputMode="numeric"
+                  />
+                  <input
+                    value={row.source}
+                    onChange={(e) => updateIncomeRow(idx, { source: e.target.value })}
+                    className="w-1/2 rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="From (optional)"
+                  />
+                </div>
+                <div className="flex rounded-lg border p-1">
+                  <button
+                    type="button"
+                    onClick={() => updateIncomeRow(idx, { destination: 'salary' })}
+                    className={`flex-1 rounded-md py-2 text-sm font-medium ${row.destination === 'salary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Salary account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateIncomeRow(idx, { destination: 'savings' })}
+                    className={`flex-1 rounded-md py-2 text-sm font-medium ${row.destination === 'savings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Savings account
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={addIncomeRow}
+            className="rounded-lg border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            + Add another income
+          </button>
+          <button onClick={saveIncome} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+            Save {incomeRows.length > 1 ? `${incomeRows.length} income entries` : 'income'}
           </button>
         </Modal>
       )}

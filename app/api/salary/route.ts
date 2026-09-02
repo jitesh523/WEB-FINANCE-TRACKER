@@ -29,14 +29,18 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { amount, month } = body
+  const { amount, month, payDay } = body
   if (amount == null || !month) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+  }
+  const day = payDay == null ? 1 : Number(payDay)
+  if (!Number.isInteger(day) || day < 1 || day > 31) {
+    return NextResponse.json({ error: 'Pay day must be between 1 and 31' }, { status: 400 })
   }
 
   const [row] = await db
     .insert(salary)
-    .values({ userId, amount: String(amount), effectiveMonth: month })
+    .values({ userId, amount: String(amount), payDay: day, effectiveMonth: month })
     .returning()
 
   return NextResponse.json({ salary: row })

@@ -51,10 +51,14 @@ export const verification = pgTable('verification', {
 
 // --- app data, owned by this project ---
 
+// `payDay`: day of the month salary actually lands (1-31, clamped to the
+// last day of shorter months) — drives the automatic monthly credit in
+// lib/accounts.ts, the same way sipPlans.dayOfMonth drives SIP execution.
 export const salary = pgTable('salary', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   amount: numeric('amount').notNull(),
+  payDay: integer('pay_day').notNull().default(1),
   effectiveMonth: text('effective_month').notNull(), // 'YYYY-MM'
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })

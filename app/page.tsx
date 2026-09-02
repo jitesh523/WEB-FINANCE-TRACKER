@@ -65,6 +65,7 @@ export default async function Page() {
       userName={userName}
       month={month}
       initialSalary={salaryRow?.amount ? Number(salaryRow.amount) : 0}
+      initialSalaryPayDay={accountBalances.salaryPayDay}
       initialSalaryAccountBalance={accountBalances.salaryAccountBalance}
       initialSavingsAccountBalance={accountBalances.savingsAccountBalance}
       initialTotalCreditedToSalary={accountBalances.totalCreditedToSalary}

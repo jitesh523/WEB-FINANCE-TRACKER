@@ -49,6 +49,7 @@ export function DashboardClient({
   userName,
   month,
   initialSalary,
+  initialSalaryPayDay,
   initialExpenses,
   initialSavings,
   initialIncome,
@@ -63,6 +64,7 @@ export function DashboardClient({
   userName: string
   month: string
   initialSalary: number
+  initialSalaryPayDay: number
   initialExpenses: Expense[]
   initialSavings: Saving[]
   initialIncome: IncomeEntry[]
@@ -79,6 +81,7 @@ export function DashboardClient({
   const [savingsEntries, setSavingsEntries] = useState(initialSavings)
   const [incomeEntries, setIncomeEntries] = useState(initialIncome)
   const [salaryAmount, setSalaryAmount] = useState(initialSalary)
+  const [salaryPayDay, setSalaryPayDay] = useState(initialSalaryPayDay)
   const [sipTotalContributed, setSipTotalContributed] = useState(initialSipTotalContributed)
   const [sips, setSips] = useState(initialSips)
   const [sipContributions, setSipContributions] = useState(initialSipContributions)
@@ -101,6 +104,7 @@ export function DashboardClient({
     setTotalCreditedToSalary(Number(data.totalCreditedToSalary || 0))
     setTotalAvailableIncome(Number(data.totalAvailableIncome || 0))
     setSalaryAmount(Number(data.salaryRate || 0))
+    setSalaryPayDay(Number(data.salaryPayDay || 1))
   }
 
   const [viewMonth, setViewMonth] = useState(month)
@@ -135,7 +139,7 @@ export function DashboardClient({
   const [incomeDate, setIncomeDate] = useState(todayISO())
   const [incomeRows, setIncomeRows] = useState<IncomeRow[]>([blankIncomeRow])
 
-  const [salaryForm, setSalaryForm] = useState(String(initialSalary || ''))
+  const [salaryForm, setSalaryForm] = useState({ amount: String(initialSalary || ''), payDay: String(initialSalaryPayDay || 1) })
   const [savingsForm, setSavingsForm] = useState({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
   const [sipForm, setSipForm] = useState<{ name: string; amount: string; dayOfMonth: string; fromAccount: string }>({
     name: '',
@@ -448,15 +452,17 @@ export function DashboardClient({
   }
 
   const updateSalary = async () => {
-    const amount = Number(salaryForm)
-    if (!amount || amount <= 0) return
+    const amount = Number(salaryForm.amount)
+    const payDay = Number(salaryForm.payDay)
+    if (!amount || amount <= 0 || !payDay || payDay < 1 || payDay > 31) return
     const res = await fetch('/api/salary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount, month }),
+      body: JSON.stringify({ amount, month, payDay }),
     })
     if (res.ok) {
       setSalaryAmount(amount)
+      setSalaryPayDay(payDay)
       setShowAddSalary(false)
       refreshAccountBalances()
     }
@@ -1218,16 +1224,34 @@ export function DashboardClient({
       )}
 
       {showAddSalary && (
-        <Modal title="Set monthly salary" subtitle="Used to calculate what's available to spend." onClose={() => setShowAddSalary(false)}>
+        <Modal
+          title="Set monthly salary"
+          subtitle="Credited into your Salary account automatically, every month, on the day you pick."
+          onClose={() => setShowAddSalary(false)}
+        >
           <label className="text-sm font-medium">
             Monthly salary
             <input
-              value={salaryForm}
-              onChange={(e) => setSalaryForm(e.target.value.replace(/[^0-9]/g, ''))}
+              value={salaryForm.amount}
+              onChange={(e) => setSalaryForm({ ...salaryForm, amount: e.target.value.replace(/[^0-9]/g, '') })}
               className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
               placeholder="₹ 0"
               inputMode="numeric"
             />
+          </label>
+          <label className="text-sm font-medium">
+            Day of month it's credited
+            <input
+              value={salaryForm.payDay}
+              onChange={(e) => setSalaryForm({ ...salaryForm, payDay: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) })}
+              className="mt-2 w-full rounded-lg border bg-background px-3 py-2.5 font-normal outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. 1"
+              inputMode="numeric"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Every month, on this day, {money(Number(salaryForm.amount) || 0)} is automatically added to your Salary account —
+              no need to add it yourself.
+            </p>
           </label>
           <button onClick={updateSalary} className="mt-2 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Save salary

@@ -5,7 +5,7 @@ savings, with an AI chat (powered by Groq) that can answer questions about
 your real spending data. Click any day in the spending chart to see that
 day's transactions, or use the month picker to browse past months and see
 that month's own chart, category breakdown, and statement. Each person who
-signs up gets their own private account — nothing is shared between users.
+signs up gets their own private account — nothing is shared between users.jauw
 
 ## Stack
 - **Next.js 16 + React 19 + Tailwind + shadcn/ui** — the app itself
@@ -45,16 +45,7 @@ pnpm dev
 ```
 Open http://localhost:3000 — you'll be redirected to sign up/log in.
 
-## Deploying (Vercel, free tier)
-1. Push this project to a GitHub repo.
-2. Import it into [vercel.com](https://vercel.com).
-3. In the project's Environment Variables settings, add the same four variables
-   from step 3 above (set `BETTER_AUTH_URL` to your real `*.vercel.app` URL).
-4. Deploy. Share the resulting URL — anyone can sign up for their own account.
-
-## How data stays private
-Every database query in `app/api/*/route.ts` and `app/page.tsx` filters by the
-signed-in user's id (from `better-auth`'s session) — there is no query path
+# no query path
 that can return another user's rows. The Groq insights endpoint
 (`app/api/insights/route.ts`) reads the same session-scoped data server-side
 and only ever sends that one user's numbers to Groq.

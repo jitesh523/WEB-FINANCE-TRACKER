@@ -59,6 +59,19 @@ export const salary = pgTable('salary', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// One row per month the current salary rate has actually been "paid" into
+// the Salary account. Auto-backfilled (see lib/accounts.ts) so the account
+// balance behaves like a real bank account that gets a fresh paycheck every
+// month, instead of resetting to just the bare rate when a new month starts.
+export const salaryCredits = pgTable('salary_credits', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount').notNull(),
+  month: text('month').notNull(), // 'YYYY-MM'
+  date: date('date').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const expenses = pgTable('expenses', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),

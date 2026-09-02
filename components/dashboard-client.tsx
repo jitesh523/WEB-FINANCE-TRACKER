@@ -55,6 +55,10 @@ export function DashboardClient({
   initialSips,
   initialSipContributions,
   initialSipTotalContributed,
+  initialSalaryAccountBalance,
+  initialSavingsAccountBalance,
+  initialTotalCreditedToSalary,
+  initialTotalAvailableIncome,
 }: {
   userName: string
   month: string
@@ -65,6 +69,10 @@ export function DashboardClient({
   initialSips: SipPlan[]
   initialSipContributions: SipContribution[]
   initialSipTotalContributed: number
+  initialSalaryAccountBalance: number
+  initialSavingsAccountBalance: number
+  initialTotalCreditedToSalary: number
+  initialTotalAvailableIncome: number
 }) {
   const router = useRouter()
   const [expenses, setExpenses] = useState(initialExpenses)
@@ -74,6 +82,26 @@ export function DashboardClient({
   const [sipTotalContributed, setSipTotalContributed] = useState(initialSipTotalContributed)
   const [sips, setSips] = useState(initialSips)
   const [sipContributions, setSipContributions] = useState(initialSipContributions)
+
+  // Real, cumulative (all-time) account balances — kept in sync with the
+  // server after every action that moves money, rather than derived from
+  // whichever month's transactions happen to be loaded, so they don't reset
+  // to a bare rate / zero when a new month starts.
+  const [salaryAccountBalance, setSalaryAccountBalance] = useState(initialSalaryAccountBalance)
+  const [savingsAccountBalance, setSavingsAccountBalance] = useState(initialSavingsAccountBalance)
+  const [totalCreditedToSalary, setTotalCreditedToSalary] = useState(initialTotalCreditedToSalary)
+  const [totalAvailableIncome, setTotalAvailableIncome] = useState(initialTotalAvailableIncome)
+
+  const refreshAccountBalances = async () => {
+    const res = await fetch('/api/accounts')
+    if (!res.ok) return
+    const data = await res.json()
+    setSalaryAccountBalance(Number(data.salaryAccountBalance || 0))
+    setSavingsAccountBalance(Number(data.savingsAccountBalance || 0))
+    setTotalCreditedToSalary(Number(data.totalCreditedToSalary || 0))
+    setTotalAvailableIncome(Number(data.totalAvailableIncome || 0))
+    setSalaryAmount(Number(data.salaryRate || 0))
+  }
 
   const [viewMonth, setViewMonth] = useState(month)
   const [monthMenuOpen, setMonthMenuOpen] = useState(false)
@@ -123,28 +151,10 @@ export function DashboardClient({
   const [chatLoading, setChatLoading] = useState(false)
   const [chatError, setChatError] = useState('')
 
+  // This month's figures, for the monthly stat cards / charts / breakdowns
+  // below — separate from the cumulative account balances above.
   const totalSpent = useMemo(() => expenses.reduce((s, e) => s + e.amount, 0), [expenses])
-  const totalSaved = useMemo(() => savingsEntries.reduce((s, x) => s + x.amount, 0), [savingsEntries])
-  const incomeToSalary = useMemo(
-    () => incomeEntries.filter((i) => i.destination !== 'savings').reduce((s, i) => s + i.amount, 0),
-    [incomeEntries],
-  )
-  const incomeToSavings = useMemo(
-    () => incomeEntries.filter((i) => i.destination === 'savings').reduce((s, i) => s + i.amount, 0),
-    [incomeEntries],
-  )
-  const savingsFromSalary = useMemo(
-    () => savingsEntries.filter((x) => x.fundSource === 'salary').reduce((s, x) => s + x.amount, 0),
-    [savingsEntries],
-  )
-  const totalIncome = incomeToSalary + incomeToSavings
-  const totalAvailableIncome = salaryAmount + totalIncome
 
-  // Two real account balances: money moved from Salary into Savings leaves the
-  // salary balance and lands in the savings balance; money added "from outside"
-  // only ever touches the savings balance.
-  const salaryAccountBalance = salaryAmount + incomeToSalary - totalSpent - savingsFromSalary
-  const savingsAccountBalance = totalSaved + incomeToSavings
   const savingsRate = totalAvailableIncome > 0 ? (savingsAccountBalance / totalAvailableIncome) * 100 : 0
 
   // Live alerts, recomputed from whatever data already exists — no push
@@ -170,7 +180,7 @@ export function DashboardClient({
     if (hasSalaryActivity && salaryAccountBalance < 10000) {
       list.push({ id: 'low-salary', message: `Low balance: your Salary account is down to ${money(salaryAccountBalance)}.` })
     }
-    const hasSavingsActivity = savingsEntries.length > 0 || incomeEntries.some((i) => i.destination === 'savings')
+    const hasSavingsActivity = savingsAccountBalance > 0
     if (hasSavingsActivity && savingsAccountBalance < 10000) {
       list.push({ id: 'low-savings', message: `Low balance: your Savings account is down to ${money(savingsAccountBalance)}.` })
     }
@@ -330,6 +340,7 @@ export function DashboardClient({
         setSips((data.sips || []).map((s: SipPlan) => ({ ...s, amount: Number(s.amount) })))
         setSipTotalContributed(Number(data.totalContributed || 0))
         await loadMonth(month)
+        await refreshAccountBalances()
       } catch {
         // best-effort — a failed check just means we try again next load
       }
@@ -358,6 +369,7 @@ export function DashboardClient({
       setExpenses([{ ...expense, amount: Number(expense.amount) }, ...expenses])
       setExpenseForm({ title: '', amount: '', category: 'Food & Dining', date: todayISO() })
       setShowAddExpense(false)
+      refreshAccountBalances()
     }
   }
 
@@ -413,6 +425,7 @@ export function DashboardClient({
     setCheckedResetKeys(new Set())
     setShowResetDay(false)
     setSelectedDay(null)
+    refreshAccountBalances()
   }
 
   const updateSalary = async () => {
@@ -426,6 +439,7 @@ export function DashboardClient({
     if (res.ok) {
       setSalaryAmount(amount)
       setShowAddSalary(false)
+      refreshAccountBalances()
     }
   }
 
@@ -447,6 +461,7 @@ export function DashboardClient({
       setSavingsEntries([{ ...saving, amount: Number(saving.amount) }, ...savingsEntries])
       setSavingsForm({ amount: '', note: '', fundSource: 'outside', date: todayISO() })
       setShowAddSavings(false)
+      refreshAccountBalances()
     }
   }
 
@@ -468,14 +483,14 @@ export function DashboardClient({
       setIncomeEntries([{ ...row, amount: Number(row.amount) }, ...incomeEntries])
       setIncomeForm({ amount: '', source: '', destination: 'salary', date: todayISO() })
       setShowAddIncome(false)
+      refreshAccountBalances()
     }
   }
 
   // A transfer is stored as a savings entry: salary→savings is a normal
   // positive deposit with fundSource 'salary'; savings→salary is the same
-  // but negative, which correctly subtracts from the savings total while
-  // also reducing `savingsFromSalary` (and thus adding back to the salary
-  // balance) in the calculations above.
+  // but negative, which correctly subtracts from the cumulative savings
+  // balance while adding back to the salary balance on the server.
   const addTransfer = async () => {
     const rawAmount = Number(transferForm.amount)
     if (!rawAmount || rawAmount <= 0) return
@@ -491,6 +506,7 @@ export function DashboardClient({
       setSavingsEntries([{ ...saving, amount: Number(saving.amount) }, ...savingsEntries])
       setTransferForm({ amount: '', direction: 'salary_to_savings', date: todayISO() })
       setShowTransfer(false)
+      refreshAccountBalances()
     }
   }
 
@@ -539,6 +555,7 @@ export function DashboardClient({
       }
       if (logContribForm.fromAccount === 'salary' || logContribForm.fromAccount === 'savings') {
         await loadMonth(viewMonth)
+        refreshAccountBalances()
       }
       setLogContribForm({ sipId: '', name: '', amount: '', date: todayISO(), fromAccount: 'none' })
       setShowLogContribution(false)
@@ -844,7 +861,7 @@ export function DashboardClient({
             <Metric
               label="Salary account"
               value={money(salaryAccountBalance)}
-              detail={`of ${money(salaryAmount + incomeToSalary)} credited`}
+              detail={`of ${money(totalCreditedToSalary)} credited`}
               tone="positive"
             />
             <Metric

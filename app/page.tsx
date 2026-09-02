@@ -7,6 +7,7 @@ import { expenses, savings, salary, income, sipPlans, sipContributions } from '@
 import { and, eq, gte, lte, desc, sql } from 'drizzle-orm'
 import { DashboardClient } from '@/components/dashboard-client'
 import { monthRange, currentMonthISO } from '@/lib/date-utils'
+import { creditDueSalaryMonths, getAccountBalances } from '@/lib/accounts'
 
 export default async function Page() {
   const userId = await requireUserId()
@@ -56,11 +57,18 @@ export default async function Page() {
     .from(sipContributions)
     .where(eq(sipContributions.userId, userId))
 
+  await creditDueSalaryMonths(userId)
+  const accountBalances = await getAccountBalances(userId)
+
   return (
     <DashboardClient
       userName={userName}
       month={month}
       initialSalary={salaryRow?.amount ? Number(salaryRow.amount) : 0}
+      initialSalaryAccountBalance={accountBalances.salaryAccountBalance}
+      initialSavingsAccountBalance={accountBalances.savingsAccountBalance}
+      initialTotalCreditedToSalary={accountBalances.totalCreditedToSalary}
+      initialTotalAvailableIncome={accountBalances.totalAvailableIncome}
       initialExpenses={expenseRows.map((e) => ({
         id: e.id,
         title: e.title,

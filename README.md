@@ -1,18 +1,99 @@
-# DD Finance Calculator
+# 💜 DD Finance Calculator
+
+<p align="center">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white">
+  <img alt="Postgres" src="https://img.shields.io/badge/Postgres-Neon-336791?logo=postgresql&logoColor=white">
+  <img alt="Groq" src="https://img.shields.io/badge/AI-Groq-F55036">
+  <img alt="Vercel" src="https://img.shields.io/badge/Deployed_on-Vercel-000000?logo=vercel&logoColor=white">
+</p>
+
+<p align="center"><b>Your money, made clear.</b></p>
 
 A personal finance tracker with real, cumulative account balances (not just a
 monthly budget sheet), automatic recurring salary and SIP investments, and an
-AI chat (powered by Groq) that answers questions about your actual data.
-Each person who signs up gets their own private account — nothing is ever
-shared or queryable across users.
+AI chat that answers questions about your actual data. Each person who signs
+up gets their own private account — nothing is ever shared or queryable
+across users.
 
-Live at: https://ddfinancetracker.vercel.app
+**Live:** https://ddfinancetracker.vercel.app
+
+## Contents
+- [How the money flows](#how-the-money-flows)
+- [A day in the life of the app](#a-day-in-the-life-of-the-app)
+- [Features](#features)
+- [Stack](#stack)
+- [Data model](#data-model)
+- [One-time setup](#one-time-setup)
+- [Deploying](#deploying)
+
+## How the money flows
+
+Three real, cumulative account balances — never a monthly snapshot that
+resets when the calendar flips:
+
+```mermaid
+flowchart LR
+    Payday(("📅 Payday<br/>arrives")) -->|auto-credit| Salary
+    OtherIncome["💰 Income"] -->|"destination: salary"| Salary
+    OtherIncome -->|"destination: savings"| Savings
+
+    Salary(["💼 Salary<br/>account"]) -->|expense| Expenses["🧾 Expenses"]
+    Salary <-->|transfer either way| Savings(["🏦 Savings<br/>account"])
+    Salary -->|"SIP cut from salary"| SIP(["📈 SIP<br/>account"])
+    Savings -->|"SIP cut from savings"| SIP
+
+    style Salary fill:#8b7cf6,color:#fff,stroke:none
+    style Savings fill:#8b7cf6,color:#fff,stroke:none
+    style SIP fill:#8b7cf6,color:#fff,stroke:none
+```
+
+Every arrow above is a real, reversible ledger entry — nothing is a mutable
+number that can silently drift. Balances are always the sum of everything
+that ever happened.
+
+## A day in the life of the app
+
+**Morning** — open the app, get greeted with the time-of-day, Japanese-flavored
+greeting ("Konnichiwa 👋"). The notification bell already knows if a SIP is
+due soon, or if a balance is running low, or if yesterday's spending crossed
+₹10,000 — all recomputed live, no waiting.
+
+**During the day** — spend on a few things, get a little income. No need to
+open the app each time.
+
+**At night** — open **Add expense**, add a row for every purchase from the
+day, hit **Save N expenses** once:
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant App
+    participant DB as Database
+
+    You->>App: Open "Add expense"
+    You->>App: Row 1: Auto ₹80, Row 2: Lunch ₹220, Row 3: Movie ₹450
+    You->>App: Save 3 expenses
+    App->>DB: Insert 3 expense rows (same date)
+    DB-->>App: All saved
+    App->>App: Refresh Salary account balance
+    App-->>You: Salary account updates instantly
+```
+
+**On payday** — nothing to do. The moment that day arrives, your configured
+salary lands in your Salary account automatically. Same for every SIP: once
+its due day arrives, it's deducted from its source account and credited to
+your SIP account without you lifting a finger.
+
+**End of month** — switch months to see a clean statement of that month
+alone, while your account balances keep showing your real, current totals —
+not a number frozen in whichever month you're looking at.
 
 ## Features
 
-### Accounts
-The app tracks three real, cumulative running balances — not month-scoped
-snapshots that reset when a new month starts:
+### 🏦 Accounts
+The app tracks three real, cumulative running balances:
 
 - **Salary account** — your everyday spending money. Credited by salary and
   any income routed here; debited by expenses, transfers to Savings, and
@@ -27,7 +108,7 @@ snapshots that reset when a new month starts:
 All three balances persist across months automatically — money you didn't
 spend or move out stays in the account, exactly like a real bank balance.
 
-### Automatic monthly salary
+### 💼 Automatic monthly salary
 **Set salary** takes an amount *and* a day of the month it's credited (e.g.
 the 1st, the 7th, the 28th — whatever your actual payday is). Every month,
 once that day arrives, the amount is automatically added to your Salary
@@ -36,7 +117,7 @@ clamps to the last day of shorter months (Feb, April, etc.). Changing the
 amount or day going forward doesn't rewrite salary you've already been
 credited.
 
-### Expenses
+### 🧾 Expenses
 - **Add expenses** with a title, amount, a free-text category (type anything
   — not limited to a fixed list), and any date (not just today).
 - **Bulk add**: the Add Expense modal lets you add several expenses at once
@@ -47,18 +128,18 @@ credited.
   day-by-day chart for the currently viewed month (click any day to see that
   day's transactions).
 
-### Income
+### 💰 Income
 - **Add income** from any source (freelance, gifts, refunds, etc.), routed
   into either your Salary or Savings account.
 - Same **bulk add** pattern as expenses: multiple income entries, a shared
   date, each with its own destination account, saved together.
 
-### Transfers
+### 🔁 Transfers
 Move money between your Salary and Savings accounts in either direction.
 A transfer out of Salary correctly reduces the Salary balance and increases
 Savings, and vice versa — real money movement, not just a note.
 
-### SIPs (recurring investments)
+### 📈 SIPs (recurring investments)
 - Set up a SIP with a name, amount, day of the month it's due, and which
   account it's cut from (Salary or Savings).
 - **Auto-execution**: on or after the due day each month, the amount is
@@ -73,33 +154,33 @@ Savings, and vice versa — real money movement, not just a note.
 - Deleting a SIP plan stops future reminders/executions but never erases the
   contribution history already recorded.
 
-### Reset a day
+### 🗑️ Reset a day
 Pick any date and see every expense, income, and savings/transfer entry from
 that day as a checklist. Select exactly which ones to delete — nothing is
 bulk-wiped automatically, and account balances update to match once you
 confirm.
 
-### Notifications
+### 🔔 Notifications
 A live notification bell (no push notifications or background jobs — just
 recomputed from your current data whenever the app is open) flags:
 - A SIP due in the next 2 days ("keep ₹X ready in your Salary account")
 - Salary or Savings account balance dropping below ₹10,000
 - Spending more than ₹10,000 in a single day
 
-### AI chat insights
+### 🤖 AI chat insights
 Ask questions in plain English about your real financial data for the month
 you're viewing ("Where am I overspending?", "How's my savings rate?"). Runs
 server-side via Groq — your data and the API key never reach the browser as
 anything other than the assistant's reply text. Answers are educational only,
 never personalized investment advice.
 
-### Month browsing
+### 📅 Month browsing
 Switch to any past month to see that month's own spending chart, category
 breakdown, and transaction statement. Account balances always show your
 current, real-time totals regardless of which month you're browsing —
 they're not a snapshot from that month.
 
-### Personalization
+### 🎨 Personalization
 - **Dynamic greeting**: changes with the time of day and adds a light
   Japanese touch — "Ohayo" (morning), "Konnichiwa" (afternoon), "Konbanwa"
   (evening) — in English text.
@@ -108,7 +189,7 @@ they're not a snapshot from that month.
 - **Lavender theme**: a custom color palette throughout, light and dark.
 - Fully responsive — mobile, tablet, and desktop layouts.
 
-### Accounts & privacy
+### 🔒 Accounts & privacy
 Email/password sign-up, each user's data fully isolated at the database
 query level — there is no code path that can return another user's rows.
 Passwords are never stored in plain text (handled by better-auth).
@@ -125,6 +206,18 @@ All money-moving tables (`expenses`, `savings`, `income`, `salary_credits`,
 `sip_contributions`) are append-only ledgers scoped by `user_id` — account
 balances are always computed by summing history, never stored as a mutable
 number, so they can't drift out of sync with what actually happened.
+
+```mermaid
+erDiagram
+    USER ||--o{ SALARY : sets
+    USER ||--o{ SALARY_CREDITS : "credited"
+    USER ||--o{ EXPENSES : logs
+    USER ||--o{ SAVINGS : logs
+    USER ||--o{ INCOME : logs
+    USER ||--o{ SIP_PLANS : configures
+    USER ||--o{ SIP_CONTRIBUTIONS : "contributes to"
+    SIP_PLANS ||--o{ SIP_CONTRIBUTIONS : executes
+```
 
 - `salary` — one row per rate change (amount + pay day + the month it took
   effect); the latest row on or before a given month is the rate in force.
